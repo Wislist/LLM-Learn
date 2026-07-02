@@ -1,0 +1,589 @@
+ <!DOCTYPE html>
+ <html lang="zh-CN">
+ <head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>LLM 术语速览 | LLM-Learn</title>
+ <style>
+   :root {
+     --bg: #0f1117;
+     --surface: #1a1c25;
+     --border: #2a2d3a;
+     --text: #e1e4ed;
+     --text-dim: #8b8fa8;
+     --accent: #6c8cff;
+     --accent-dim: #4a6adf;
+     --green: #4ade80;
+     --orange: #fb923c;
+     --cyan: #22d3ee;
+     --pink: #e879f9;
+     --yellow: #facc15;
+     --code-bg: #151721;
+     --max-w: 860px;
+   }
+   * { margin: 0; padding: 0; box-sizing: border-box; }
+   body {
+     font-family: -apple-system, BlinkMacSystemFont, "SF Mono", "Segoe UI", system-ui, sans-serif;
+     background: var(--bg);
+     color: var(--text);
+     line-height: 1.7;
+     padding: 0;
+     -webkit-font-smoothing: antialiased;
+   }
+   main {
+     max-width: var(--max-w);
+     margin: 0 auto;
+     padding: 48px 32px 100px;
+   }
+ 
+   h1 {
+     font-size: 30px;
+     font-weight: 700;
+     letter-spacing: -0.3px;
+     margin-bottom: 8px;
+     background: linear-gradient(135deg, var(--accent), var(--cyan));
+     -webkit-background-clip: text;
+     -webkit-text-fill-color: transparent;
+     background-clip: text;
+   }
+   .meta {
+     color: var(--text-dim);
+     font-size: 14px;
+     margin-bottom: 48px;
+     padding-bottom: 24px;
+     border-bottom: 1px solid var(--border);
+   }
+ 
+   h2 {
+     font-size: 20px;
+     font-weight: 600;
+     margin-top: 48px;
+     margin-bottom: 4px;
+     color: var(--text);
+     display: flex;
+     align-items: center;
+     gap: 8px;
+   }
+   h2 .tag {
+     font-size: 11px;
+     font-weight: 500;
+     padding: 2px 10px;
+     border-radius: 20px;
+     letter-spacing: 0.3px;
+   }
+   .tag-arch { background: rgba(108,140,255,0.15); color: var(--accent); }
+   .tag-inf { background: rgba(251,146,60,0.15); color: var(--orange); }
+   .tag-agent { background: rgba(232,121,249,0.15); color: var(--pink); }
+   .tag-model { background: rgba(74,222,128,0.15); color: var(--green); }
+   .tag-prac { background: rgba(250,204,21,0.15); color: var(--yellow); }
+ 
+   .section-desc {
+     color: var(--text-dim);
+     font-size: 14px;
+     margin-bottom: 20px;
+   }
+ 
+   /* term card */
+   .term {
+     background: var(--surface);
+     border: 1px solid var(--border);
+     border-radius: 8px;
+     padding: 20px 24px;
+     margin-bottom: 14px;
+     transition: border-color 0.15s;
+   }
+   .term:hover { border-color: rgba(108,140,255,0.3); }
+   .term-header {
+     display: flex;
+     align-items: baseline;
+     gap: 10px;
+     margin-bottom: 6px;
+   }
+   .term-name {
+     font-weight: 600;
+     font-size: 16px;
+     color: #fff;
+     font-family: "SF Mono", "JetBrains Mono", monospace;
+   }
+   .term-en {
+     font-size: 12px;
+     color: var(--text-dim);
+     font-family: "SF Mono", monospace;
+   }
+   .term-desc {
+     font-size: 14px;
+     color: var(--text);
+     margin-top: 4px;
+   }
+   .term-meta {
+     font-size: 13px;
+     color: var(--text-dim);
+     margin-top: 8px;
+     padding-top: 8px;
+     border-top: 1px solid var(--border);
+   }
+   .term-meta strong { color: var(--accent); font-weight: 500; }
+ 
+   .back-link {
+     display: inline-block;
+     margin-top: 48px;
+     color: var(--text-dim);
+     font-size: 14px;
+     text-decoration: none;
+   }
+   .back-link:hover { color: var(--accent); }
+ 
+   @media (max-width: 640px) {
+     main { padding: 28px 16px 80px; }
+     h1 { font-size: 24px; }
+     .term { padding: 16px; }
+   }
+ </style>
+ </head>
+ <body>
+ 
+ <main>
+   <h1>LLM 术语速览</h1>
+   <div class="meta">
+     面向 Agent 开发者的实用术语表 &mdash; 2026-07-02
+   </div>
+ 
+   <div class="section-desc">
+     按学习路线分组，术语按照你在写 opencode 过程中遇到的先后顺序排列。
+     每个词都有"工程师视角"的解释——不追求教科书精确，追求你读完了能继续写代码。
+   </div>
+ 
+   <!-- ==================== 架构 ==================== -->
+   <h2>
+     架构基础
+     <span class="tag tag-arch">ARCH</span>
+   </h2>
+   <div class="section-desc">
+     这些概念在你调通第一个 API 之前就该知道。
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">Token</span>
+       <span class="term-en">/ˈtoʊkən/</span>
+     </div>
+     <div class="term-desc">
+       LLM 处理文本的最小单位。不是字母也不是单词，而是"子词"。
+       一个 token 大约 = 0.75 个英文单词，或 1.5 个中文字。
+       Tokenizer 决定怎么切——"hello world" 可能切成 ["hello", " world"] 两个 token，
+       "unbelievable" 可能切成 ["un", "believe", "able"] 三个。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>API 按 token 计费。上下文窗口上限也是用 token 衡量。
+       学会估算 token 数能帮你预判成本和窗口溢出。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">上下文窗口</span>
+       <span class="term-en">Context Window</span>
+     </div>
+     <div class="term-desc">
+       LLM 一次能"看到"的最大 token 数。DeepSeek-V3 是 64K，GPT-4 是 128K，
+       Gemini 有 1M。超出窗口的内容模型会"忘记"。
+       你的 Agent 框架需要管理这个窗口：哪些历史要保留，哪些要丢弃或摘要。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>Agent 做多轮工具调用时会快速消耗窗口。
+       你写的框架必须实现"上下文截断"逻辑——裁掉最早的对话，保留最近的 N 轮 + 所有工具调用结果。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">KV Cache</span>
+       <span class="term-en">Key-Value Cache</span>
+     </div>
+     <div class="term-desc">
+       Transformer 自注意力机制中，每个 token 会生成 Key 和 Value 向量。
+       生成新 token 时，之前所有 token 的 K/V 可以被缓存起来复用，避免重复计算。
+       KV Cache 是 LLM 推理延迟的核心瓶颈——它随序列长度线性增长。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>长上下文中，KV Cache 可能比模型权重还大（20B+ 参数的模型，128K 窗口下 cache 可达几十 GB）。
+       这是为什么本地 8B 模型跑 32K 窗口也吃内存的原因。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">Logits</span>
+       <span class="term-en">/ˈlɒdʒɪts/</span>
+     </div>
+     <div class="term-desc">
+       模型最后一层输出的原始分数（未归一化概率），每个 token 对应一个 logit。
+       你调的 temperature / top_p 都是作用在 logits 上的后处理。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>你在 API 参数里设置的 temperature、top_p、top_k
+       就是控制"怎么把 logits 变成最终输出的 token"。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">采样参数三件套</span>
+       <span class="term-en">Temperature / Top-p / Top-k</span>
+     </div>
+     <div class="term-desc">
+       <strong>Temperature</strong>（0~2）：控制输出随机性。0 基本确定，1 正常，>1 更发散。<br>
+       <strong>Top-p</strong>（nucleus sampling）：只从累计概率达到 p 的最小 token 集合中采样。<br>
+       <strong>Top-k</strong>：只从概率最高的 k 个 token 中采样。<br>
+       通常调 temperature 就够了，top-p 和 top-k 留给更精细的控制。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>Agent 场景下 <strong>temperature = 0</strong> 通常是最稳的——你希望工具调用可复现，不要发散。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">预训练 / SFT / RLHF</span>
+       <span class="term-en">Pre-training → SFT → RLHF</span>
+     </div>
+     <div class="term-desc">
+       LLM 诞生的三个主要阶段：<br>
+       <strong>预训练</strong>：在海量文本上做 next token prediction，模型学会"语言"（GPT-3 等）。<br>
+       <strong>SFT</strong>（监督微调）：用人工标注的问答对训练模型学会"对话"（ChatGPT 的关键一步）。<br>
+       <strong>RLHF</strong>（人类反馈强化学习）：用人类偏好进一步对齐模型行为（让模型说人话、拒绝有害请求）。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>你日常调用的 API 模型（DeepSeek-Chat、GPT-4o）都是三阶段跑完的。本地模型像 Hermes 通常是 SFT 后的 instruct 版。
+       "Base model" = 只有预训练，不适合直接对话。
+     </div>
+   </div>
+ 
+   <!-- ==================== 推理 ==================== -->
+   <h2>
+     推理与服务
+     <span class="tag tag-inf">INFERENCE</span>
+   </h2>
+   <div class="section-desc">
+     这些概念在你处理 API 响应、写流式解析时会遇到。
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">流式输出</span>
+       <span class="term-en">Streaming / SSE</span>
+     </div>
+     <div class="term-desc">
+       LLM 逐 token 生成时，通过 Server-Sent Events（SSE）协议实时推送。
+       每个推送是一条 <code>data: {json}\n\n</code> 格式的消息，
+       最后一条是 <code>data: [DONE]</code>。<br>
+       你在 <code>hello-llm</code> 项目里已经写过的解析逻辑就是这个。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>你的 Agent 框架<strong>必须</strong>处理好流式解析。
+       非流式返回慢、用户感知差。但你也要注意：流式下 tool_calls 可能不完整（截断），需要有容错机制。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">MoE</span>
+       <span class="term-en">Mixture of Experts</span>
+     </div>
+     <div class="term-desc">
+       一种模型架构：把一个大模型拆成多个"专家"子网络，推理时只激活其中一部分。
+       DeepSeek-V3、Mixtral 都是 MoE。671B 参数的 DeepSeek-V3 每次只激活 ~37B 的参数——所以你用起来感觉很快。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>要理解为什么 API 提供商能提供"671B"级别模型而收费不高——因为你实际用的是 37B。
+       本地模型是 dense 架构（全部激活），所以 7B 本地模型和 37B 激活的 MoE 各自有适用场景。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">量化</span>
+       <span class="term-en">Quantization</span>
+     </div>
+     <div class="term-desc">
+       把模型权重从高精度（FP16 / FP32）压缩到低精度（INT8 / INT4）的技术。
+       常见格式：GGUF（llama.cpp 生态）、GPTQ（GPU）、AWQ（GPU）。
+       4-bit 量化可以将 7B 模型的内存需求从 ~14GB 降到 ~4GB，推理质量几乎不下降。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>你计划里要跑本地 Hermes-3 8B，大概率用 GGUF 量化版（Q4_K_M）。
+       Ollama 默认拉取的就是量化版。不用紧张，你用 curl 调 Ollama 时感觉不到区别。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">停止条件</span>
+       <span class="term-en">Stop / EOS Token</span>
+     </div>
+     <div class="term-desc">
+       LLM 何时停止生成？三种机制：<br>
+       1. 模型输出了 <code>&lt;|end_of_text|&gt;</code> 等 EOS（End of Sequence）token。<br>
+       2. 达到 API 参数里设置的 <code>max_tokens</code>。<br>
+       3. 命中了你指定的 <code>stop</code> 字符串列表（如 ["\n\n", "User:"]）。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>Agent 场景下，你可以用 stop 条件让模型在输出 <code>&lt;tool_call&gt;</code> 后就不再生成了——提前拦截，加快循环。
+     </div>
+   </div>
+ 
+   <!-- ==================== Agent ==================== -->
+   <h2>
+     Agent 专项
+     <span class="tag tag-agent">AGENT</span>
+   </h2>
+   <div class="section-desc">
+     这些是你写 opencode 最核心要掌握的概念。
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">System Prompt</span>
+       <span class="term-en">系统提示词</span>
+     </div>
+     <div class="term-desc">
+       API 请求中 <code>role: "system"</code> 的消息。定义 LLM 的行为规范、人格上限、能力边界。
+       opencode 的 system prompt 很长——包含工具描述、输出格式、错误处理策略等。
+       这是 Agent 开发中最关键的"杠杆点"：改一行 system prompt 可能比改 100 行框架代码效果更大。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>你在写 <code>mini-opencode</code> 时，system prompt 质量直接决定模型会不会乱调工具。
+       建议去看 DeepSeek 和 Hermes 的开源 system prompt——学了再说自己写。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">Function Calling</span>
+       <span class="term-en">Tool Use / Tool Calling</span>
+     </div>
+     <div class="term-desc">
+       LLM 输出 <code>tool_calls</code> 结构的能力。API 层通过 <code>tools</code> 参数注册工具 schema，
+       模型自己判断"现在该用哪个工具、传什么参数"。
+       有两种主流的"方言"：OpenAI 式（JSON <code>tool_calls</code> 数组）和 Hermes 式（XML <code>&lt;tool_call&gt;</code> 标签）。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>这就是你的 Agent 框架要解析的核心。
+       <code>hello-llm</code> 项目的 Part 2 已经带你走了一遍全流程。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">ReAct</span>
+       <span class="term-en">Reasoning + Acting</span>
+     </div>
+     <div class="term-desc">
+       一种 Agent 循环范式：模型交替输出"思考过程"和"行动"。
+       标准流程是 <strong>Thought → Action → Observation → Thought → ...</strong><br>
+       比如：Thought（"用户要改 main.go，我得先读文件"）→ Action（read_file）→ Observation（文件内容）→ 继续。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>这是最简单、最实用的 Agent 模式。你 Month 1 的 <code>mini-opencode</code> 就是 ReAct 的一个实现。
+       Hermes 的 system prompt 天然就是 ReAct 风格。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">JSON / 结构化输出</span>
+       <span class="term-en">JSON Mode / Structured Output</span>
+     </div>
+     <div class="term-desc">
+       让 LLM 的输出符合指定 JSON Schema 的能力。三种实现方式：<br>
+       1. <strong>JSON Schema</strong>（API 参数里声明 response_format）— OpenAI 支持最好<br>
+       2. <strong>Tool calling 兜底</strong> — 把"输出JSON"伪装成一个工具调用<br>
+       3. <strong>Grammar</strong>（GBNF）— 在推理时约束 logits，只输出符合 grammar 的 token，llama.cpp 支持
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>你希望 Agent 的思考过程可以解析，所以输出格式必须有约定。
+       用 JSON 比自由文本可靠得多——至少你能 <code>json.Unmarshal</code>。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">Few-shot / In-Context Learning</span>
+       <span class="term-en">少样本 / 上下文学习</span>
+     </div>
+     <div class="term-desc">
+       在 Prompt 里给几个例子（shots），让模型照猫画虎。
+       比如在 system prompt 里塞 2-3 个"正确的工具调用"例子，可以减少模型输出格式错误。
+       Agent system prompt 里几乎一定会塞 few-shot examples。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>写好 Agent system prompt 时，给 2-3 个 tool call 示例比写"请正确调用工具"有效 10 倍。
+       这是 prompt engineering 里性价比最高的技巧。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">Plan-and-Execute</span>
+       <span class="term-en">先计划后执行</span>
+     </div>
+     <div class="term-desc">
+       比 ReAct 更复杂的 Agent 范式。先让 LLM 输出一个计划（Plan），然后逐步执行。
+       适合多步骤复杂任务。与 ReAct 的主要区别：ReAct 是"边想边做"，Plan-Execute 是"先想好再做"。
+       你 Month 3 的路线包含这个。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>你现在只需要知道这个名字。Month 1 先把 ReAct 跑通，后面再对比优化。
+     </div>
+   </div>
+ 
+   <!-- ==================== 模型 ==================== -->
+   <h2>
+     模型与训练
+     <span class="tag tag-model">MODEL</span>
+   </h2>
+   <div class="section-desc">
+     你不需要会训练模型，但理解这些术语能帮你更好地选型和 debug。
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">Base vs Instruct</span>
+       <span class="term-en">基座模型 vs 指令模型</span>
+     </div>
+     <div class="term-desc">
+       同一个模型权重的两个版本：<strong>Base</strong> 只有预训练，没有对话能力（适合继续训练或微调）。
+       <strong>Instruct</strong> 经过 SFT / RLHF 对齐，可以直接对话和 Tool calling。
+       你从 Ollama 拉取的模型（如 <code>hermes3:8b</code>）都是 instruct 版。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>千万别下错了版本。调 API 时用的都是 instruct，base 模型聊天体验极差（会乱接话、不会对话格式）。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">LoRA / Q-LoRA</span>
+       <span class="term-en">Low-Rank Adaptation</span>
+     </div>
+     <div class="term-desc">
+       高效微调技术。不修改原始模型权重，而是给每层加上一个小型的"适配器"（低秩矩阵）。
+       <strong>LoRA</strong> 需要一个 GPU 来微调。<strong>Q-LoRA</strong> 在量化后的模型上做 LoRA，内存需求从 48GB 降到 12GB。
+       你 Month 3 微调 Hermes 时就会用到。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>不需要几十张卡。一台单卡 H100 或 Colab 就能用 Q-LoRA 微调 7B 模型。
+       这是个体开发者能做"模型侧"工作的关键入口。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">RAG</span>
+       <span class="term-en">Retrieval-Augmented Generation</span>
+     </div>
+     <div class="term-desc">
+       不修改模型，而是给 LLM 提供外部知识。流程：用户提问 → 从向量库检索相关文档 → 把文档作为上下文拼入 prompt → LLM 基于上下文回答。
+       你 Month 2 计划做的就是 RAG。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>与微调的对比：RAG 给模型看新信息，微调让模型学新能力。RAG 适合知识型任务，微调适合行为型任务。
+       两者不是替代关系，是互补。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">Embedding</span>
+       <span class="term-en">文本向量化</span>
+     </div>
+     <div class="term-desc">
+       把文本转换成固定长度的浮点向量。语义相近的文本在向量空间里距离也近。
+       RAG 的核心就是先把你所有文档做 embedding，用户提问时把问题也做 embedding，
+       然后在向量库里找最近的文档。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>选 embedding 模型比选 LLM 更讲究——好的 embedding（如 bge-m3、nomic-embed-text）
+       能在 768 维空间里准确区分语义。选错了将导致检索质量全线崩盘。
+     </div>
+   </div>
+ 
+   <!-- ==================== 实践 ==================== -->
+   <h2>
+     工程实践
+     <span class="tag tag-prac">PRACTICE</span>
+   </h2>
+   <div class="section-desc">
+     Agent 开发中你会遇到的工程概念。
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">MCP</span>
+       <span class="term-en">Model Context Protocol</span>
+     </div>
+     <div class="term-desc">
+       Anthropic 推出的开放协议，定义 Agent 如何动态发现和调用工具。核心思路：Agent 启动时连接 MCP server，
+       server 告诉 Agent "我有这些工具"，Agent 按需使用。支持的传输方式包括 stdio（本地子进程间通信）和 SSE（远程通信）。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>MCP 是 opencode 的工具加载方式。你写了 <code>mcp-go-tools</code> 后，
+       这些工具不仅能在你的 Agent 里用，也能被 Claude Desktop、opencode 等任何 MCP 客户端直接加载。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">Trace / 可观测</span>
+       <span class="term-en">Tracing / Observability</span>
+     </div>
+     <div class="term-desc">
+       记录 Agent 每一步的信息：发送了多少 token、每次 tool call 耗时、模型返回了什么。
+       工具：Langfuse、Arize Phoenix。你可以自部署一个 Docker 实例，所有 APi 调用都打上 trace。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>没有 trace 你根本不知道 Agent 在哪个环节出了问题。
+       "token 用完了但没完成任务"和"模型选了错误的工具"是两个完全不同的故障，
+       没有 trace 只能靠猜。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">百宝箱：HLOD</span>
+       <span class="term-en">High / Low / Open / Distant</span>
+     </div>
+     <div class="term-desc">
+       一个帮你理解 LLM 能力的四象限框架：<br>
+       <strong>High-LOD</strong>：高精度、高质量输出的任务（代码生成、工具调用）<br>
+       <strong>Low-LOD</strong>：可以容忍模糊性的任务（灵感生成、摘要）<br>
+       <strong>Open</strong>：需要创造力的任务（创意写作）<br>
+       <strong>Distant</strong>：需要模型做它本不擅长的泛化推理（罕见场景下的规划）<br>
+       不同任务选不同的模型 + 参数配置。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>Agent 任务属于 High-LOD——你需要在工具调用上达到接近 100% 的准确率。
+       这也解释了为什么 temperature=0 是 Agent 场景的默认配置。
+     </div>
+   </div>
+ 
+   <div class="term">
+     <div class="term-header">
+       <span class="term-name">Eval / 评测</span>
+       <span class="term-en">Evaluation / Benchmark</span>
+     </div>
+     <div class="term-desc">
+       衡量 Agent 好坏的指标。你写的 Agent 框架需要配套 eval 集才能持续改进。
+       常见指标：成功率、平均步数、总 token 消耗、工具调用格式错误率。
+       标准评测集：BFCL（function calling）、SWE-bench（软件工程）、GAIA（通用 Agent）。
+     </div>
+     <div class="term-meta">
+       <strong>为什么重要：</strong>没有 eval 就没有迭代方向。你 Month 3 的路线包含自建 eval 集，
+       从 SWE-bench 抽 20 个简化任务来测你的 Agent。
+     </div>
+   </div>
+ 
+   <a href="week-01-core-concepts.html" class="back-link">&larr; 返回：Agent 基础概念</a>
+ </main>
+ </body>
+ </html>

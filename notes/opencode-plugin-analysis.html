@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>opencode 插件核心函数分析 | LLM-Learn</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1c25; --border: #2a2d3a;
+    --text: #e1e4ed; --text-dim: #8b8fa8; --accent: #6c8cff;
+    --green: #4ade80; --orange: #fb923c; --cyan: #22d3ee;
+    --pink: #e879f9; --yellow: #facc15;
+    --code-bg: #151721; --max-w: 860px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Mono", "Segoe UI", system-ui, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.7; padding: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: var(--max-w); margin: 0 auto; padding: 48px 32px 100px; }
+
+  h1 {
+    font-size: 30px; font-weight: 700; letter-spacing: -0.3px; margin-bottom: 8px;
+    background: linear-gradient(135deg, var(--accent), var(--cyan));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .meta { color: var(--text-dim); font-size: 14px; margin-bottom: 48px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
+
+  h2 { font-size: 22px; font-weight: 600; margin-top: 48px; margin-bottom: 4px; color: var(--text); }
+  .section-desc { color: var(--text-dim); font-size: 14px; margin-bottom: 24px; }
+
+  .fn-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 20px; overflow: hidden;
+  }
+  .fn-header {
+    display: flex; align-items: center; gap: 12px; padding: 14px 20px;
+    border-bottom: 1px solid var(--border); cursor: default;
+  }
+  .fn-name {
+    font-family: "SF Mono", "JetBrains Mono", monospace;
+    font-size: 15px; font-weight: 600; color: var(--cyan);
+  }
+  .fn-source {
+    font-size: 11px; color: var(--text-dim);
+    background: var(--code-bg); padding: 2px 8px; border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  .fn-desc {
+    padding: 12px 20px; font-size: 14px; color: var(--text-dim);
+    border-bottom: 1px solid var(--border); line-height: 1.8;
+  }
+  .fn-desc strong { color: var(--text); }
+  .fn-body { padding: 0; }
+  .fn-body pre {
+    margin: 0; padding: 20px; background: var(--code-bg);
+    border: none; border-radius: 0;
+    font-size: 13px; line-height: 1.6; overflow-x: auto;
+  }
+  .fn-body pre code { font-family: "SF Mono", "JetBrains Mono", monospace; }
+
+  .callout {
+    background: var(--surface); border-left: 3px solid var(--accent);
+    padding: 16px 20px; border-radius: 0 8px 8px 0; margin-bottom: 24px;
+  }
+  .callout p { margin-bottom: 0; font-size: 15px; }
+
+  .tag { display: inline-block; font-size: 11px; font-weight: 500; padding: 2px 10px; border-radius: 20px; }
+  .tag-sock { background: rgba(251,146,60,0.15); color: var(--orange); }
+  .tag-event { background: rgba(232,121,249,0.15); color: var(--pink); }
+  .tag-env { background: rgba(74,222,128,0.15); color: var(--green); }
+  .tag-util { background: rgba(108,140,255,0.15); color: var(--accent); }
+  .tag-flow { background: rgba(250,204,21,0.15); color: var(--yellow); }
+
+  @media (max-width: 640px) { main { padding: 28px 16px 80px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>opencode 插件核心函数分析</h1>
+  <div class="meta">
+    从 open-island.js + vibe-island.js 中提取的关键函数 &mdash; 2026-07-02
+  </div>
+
+  <div class="callout">
+    <p>
+      以下函数从两个真实插件中提取，只保留了核心逻辑，去掉了边界处理。直接复制到 Node.js 环境就能跑，边改边试。
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>1. 通信：Unix Socket</h2>
+  <div class="section-desc">
+    插件与桌面 App 之间通过 <strong>Unix domain socket</strong> 通信。
+    只发不收（fire-and-forget）用 <code>sendToSocket</code>，等回复用 <code>sendAndWaitResponse</code>。
+  </div>
+
+  <div class="fn-box">
+    <div class="fn-header">
+      <span class="fn-name">sendToSocket</span>
+      <span class="tag tag-sock">SOCKET</span>
+      <span class="fn-source">open-island.js</span>
+    </div>
+    <div class="fn-desc">
+      <strong>功能：</strong>发一条 JSON 消息到 Unix socket，不等回复。<br>
+      <strong>场景：</strong>SessionStart、UserPromptSubmit、PreToolUse 等不需要等回应的通知。<br>
+      <strong>参数：</strong><code>json</code> — 任意可序列化的对象。<br>
+      <strong>返回：</strong><code>true</code>（发成功）、<code>false</code>（发失败—socket 不通）。<br>
+      <strong>超时：</strong>3 秒后自动销毁。
+    </div>
+    <div class="fn-body">
+<pre><code><span style="color:#8b8fa8">// open-island.js — 发送后不等回复</span>
+<span style="color:#6c8cff">function</span> sendToSocket(json) {
+  <span style="color:#6c8cff">return new</span> Promise(<span style="color:#6c8cff">function</span>(resolve) {
+    <span style="color:#6c8cff">try</span> {
+      <span style="color:#6c8cff">const</span> sock = connect({ path: SOCKET_PATH }, <span style="color:#6c8cff">function</span>() {
+        <span style="color:#8b8fa8">// socket 连接成功，发送 JSON + 换行</span>
+        sock.end(encodeEnvelope(json));
+      });
+      <span style="color:#8b8fa8">// 3 秒超时，超时即认为失败</span>
+      sock.setTimeout(3000, <span style="color:#6c8cff">function</span>() { sock.destroy(); resolve(false); });
+      sock.on(<span style="color:#22d3ee">"error"</span>, <span style="color:#6c8cff">function</span>() { resolve(false); });
+    } <span style="color:#6c8cff">catch</span> { resolve(false); }
+  });
+}
+
+<span style="color:#8b8fa8">// encodeEnvelope: 把 JSON 包装成一行，末尾加 \n
+// 桌面 App 端按行读取 socket</span>
+<span style="color:#6c8cff">function</span> encodeEnvelope(command) {
+  <span style="color:#6c8cff">return</span> JSON.stringify({ type: <span style="color:#22d3ee">"command"</span>, command }) + <span style="color:#22d3ee">"\n"</span>;
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="fn-box">
+    <div class="fn-header">
+      <span class="fn-name">sendAndWaitResponse</span>
+      <span class="tag tag-sock">SOCKET</span>
+      <span class="fn-source">open-island.js</span>
+    </div>
+    <div class="fn-desc">
+      <strong>功能：</strong>发一条 JSON 消息到 Unix socket，<strong>等回复</strong>。<br>
+      <strong>场景：</strong>PermissionRequest（请求用户批准）、QuestionAsked（等待用户回答）。需要用户点"允许"或"拒绝"，不能 fire-and-forget。<br>
+      <strong>返回：</strong>解析后的 JSON 对象，或 <code>null</code>（超时/失败）。<br>
+      <strong>超时：</strong>5 分钟（300秒）——因为要等用户看完对话框。
+    </div>
+    <div class="fn-body">
+<pre><code><span style="color:#8b8fa8">// open-island.js — 发送后收集回复</span>
+<span style="color:#6c8cff">function</span> sendAndWaitResponse(json, timeoutMs = <span style="color:#facc15">300000</span>) {
+  <span style="color:#6c8cff">return new</span> Promise(<span style="color:#6c8cff">function</span>(resolve) {
+    <span style="color:#6c8cff">try</span> {
+      <span style="color:#6c8cff">const</span> sock = connect({ path: SOCKET_PATH }, <span style="color:#6c8cff">function</span>() {
+        sock.write(encodeEnvelope(json));  <span style="color:#8b8fa8">// 发送请求</span>
+      });
+      <span style="color:#6c8cff">let</span> buf = <span style="color:#22d3ee">""</span>;
+      sock.on(<span style="color:#22d3ee">"data"</span>, <span style="color:#6c8cff">function</span>(chunk) {
+        buf += chunk.toString();
+        <span style="color:#8b8fa8">// BridgeServer 先发 "hello"，处理完后再发响应
+        // 所以收到 >= 2行时，第2行就是回复</span>
+        <span style="color:#6c8cff">const</span> lines = buf.split(<span style="color:#22d3ee">"\n"</span>).filter(Boolean);
+        <span style="color:#6c8cff">if</span> (lines.length >= <span style="color:#facc15">2</span>) {
+          sock.destroy();
+          <span style="color:#6c8cff">try</span> { resolve(JSON.parse(lines[1])); }
+          <span style="color:#6c8cff">catch</span> { resolve(null); }
+        }
+      });
+      sock.setTimeout(timeoutMs, <span style="color:#6c8cff">function</span>() { sock.destroy(); resolve(null); });
+    } <span style="color:#6c8cff">catch</span> { resolve(null); }
+  });
+}</code></pre>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>2. 事件映射：opencode → 桌面 App</h2>
+  <div class="section-desc">
+    这是插件的<strong>核心逻辑</strong>：把 opencode 的 event 对象转换成桌面 App 能理解的消息。
+    下面只列了最重要的 5 个事件分支。
+  </div>
+
+  <div class="fn-box">
+    <div class="fn-header">
+      <span class="fn-name">mapEvent — session.created</span>
+      <span class="tag tag-event">EVENT</span>
+      <span class="fn-source">open-island.js</span>
+    </div>
+    <div class="fn-desc">
+      <strong>触发：</strong>用户在 opencode 中创建了一个新对话。<br>
+      <strong>做的事情：</strong>记录 session 的工作目录（cwd），发 SessionStart 通知桌面 App。
+    </div>
+    <div class="fn-body">
+<pre><code><span style="color:#6c8cff">if</span> (t === <span style="color:#22d3ee">"session.created"</span> && p.info) {
+  <span style="color:#6c8cff">const</span> cwd = p.info.directory || <span style="color:#22d3ee">""</span>;
+  sessionCwd.set(p.info.id, cwd);       <span style="color:#8b8fa8">// 记住这个 session 的工作目录</span>
+  <span style="color:#6c8cff">return</span> makePayload(<span style="color:#22d3ee">"SessionStart"</span>, p.info.id, cwd);
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="fn-box">
+    <div class="fn-header">
+      <span class="fn-name">mapEvent — message.part.updated (text)</span>
+      <span class="tag tag-event">EVENT</span>
+      <span class="fn-source">open-island.js</span>
+    </div>
+    <div class="fn-desc">
+      <strong>触发：</strong>模型或用户在对话中发了一段文字。<br>
+      <strong>做的事情：</strong>判断是谁发的（<code>meta.role</code>），如果是用户→发 UserPromptSubmit（含 prompt 文本），如果是助手→只记录文本但不发事件。
+    </div>
+    <div class="fn-body">
+<pre><code><span style="color:#6c8cff">if</span> (t === <span style="color:#22d3ee">"message.part.updated"</span> && p.part?.type === <span style="color:#22d3ee">"text"</span> && p.part?.messageID) {
+  <span style="color:#6c8cff">const</span> meta = msgRoles.get(p.part.messageID);  <span style="color:#8b8fa8">// 查这个消息是谁发的</span>
+  <span style="color:#6c8cff">if</span> (!meta) <span style="color:#6c8cff">return</span> null;
+  <span style="color:#6c8cff">const</span> text = p.part.text || <span style="color:#22d3ee">""</span>;
+  <span style="color:#6c8cff">if</span> (meta.role === <span style="color:#22d3ee">"user"</span> && text) {
+    <span style="color:#6c8cff">return</span> makePayload(<span style="color:#22d3ee">"UserPromptSubmit"</span>, meta.sessionID,
+      sessionCwd.get(meta.sessionID), { prompt: text });
+  }
+  <span style="color:#6c8cff">if</span> (meta.role === <span style="color:#22d3ee">"assistant"</span> && text) {
+    getSession(meta.sessionID).lastAssistantText = text;  <span style="color:#8b8fa8">// 只记不发</span>
+  }
+  <span style="color:#6c8cff">return</span> null;
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="fn-box">
+    <div class="fn-header">
+      <span class="fn-name">mapEvent — message.part.updated (tool)</span>
+      <span class="tag tag-event">EVENT</span>
+      <span class="fn-source">open-island.js</span>
+    </div>
+    <div class="fn-desc">
+      <strong>触发：</strong>模型调用了工具，工具开始执行或执行完毕。<br>
+      <strong>做的事情：</strong>根据 <code>status</code> 判断是"开始用"还是"用完了"：
+      <code>pending/running</code> → PreToolUse（告知桌面 App"要执行某某工具了"）；<code>completed/error</code> → PostToolUse。
+    </div>
+    <div class="fn-body">
+<pre><code><span style="color:#6c8cff">if</span> (t === <span style="color:#22d3ee">"message.part.updated"</span> && p.part?.type === <span style="color:#22d3ee">"tool"</span> && p.part?.sessionID) {
+  <span style="color:#6c8cff">const</span> st = p.part.state?.status;    <span style="color:#8b8fa8">// "pending" | "running" | "completed" | "error"</span>
+  <span style="color:#6c8cff">const</span> toolName = capitalize(p.part.tool);  <span style="color:#8b8fa8">// 工具名首字母大写</span>
+
+  <span style="color:#6c8cff">if</span> (st === <span style="color:#22d3ee">"running"</span> || st === <span style="color:#22d3ee">"pending"</span>) {
+    <span style="color:#6c8cff">return</span> makePayload(<span style="color:#22d3ee">"PreToolUse"</span>, p.part.sessionID, cwd, {
+      tool_name: toolName,
+      tool_input: p.part.state?.input       <span style="color:#8b8fa8">// 工具的参数</span>
+    });
+  }
+  <span style="color:#6c8cff">if</span> (st === <span style="color:#22d3ee">"completed"</span> || st === <span style="color:#22d3ee">"error"</span>) {
+    <span style="color:#6c8cff">return</span> makePayload(<span style="color:#22d3ee">"PostToolUse"</span>, p.part.sessionID, cwd, {
+      tool_name: toolName
+    });
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="fn-box">
+    <div class="fn-header">
+      <span class="fn-name">mapEvent — permission.asked</span>
+      <span class="tag tag-event">EVENT</span>
+      <span class="fn-source">open-island.js</span>
+    </div>
+    <div class="fn-desc">
+      <strong>触发：</strong>模型请求执行一个需要用户批准的操作（如运行 bash 命令、修改文件）。<br>
+      <strong>做的事情：</strong>发 PermissionRequest 到桌面 App，显示对话框。<br>
+      注意 <code>_opencode_request_id</code> — 用户批准后，插件用这个 ID 调用 HTTP API 告诉 opencode 结果。
+    </div>
+    <div class="fn-body">
+<pre><code><span style="color:#6c8cff">if</span> (t === <span style="color:#22d3ee">"permission.asked"</span> && p.id && p.sessionID) {
+  <span style="color:#6c8cff">const</span> toolName = capitalize(p.permission);  <span style="color:#8b8fa8">// "bash" / "edit" / "write"</span>
+  <span style="color:#6c8cff">const</span> patterns = p.patterns || [];
+
+  <span style="color:#6c8cff">const</span> toolInput = { patterns, metadata: p.metadata };
+  <span style="color:#6c8cff">if</span> (p.permission === <span style="color:#22d3ee">"bash"</span>) {
+    toolInput.command = patterns.join(<span style="color:#22d3ee">" && "</span>);  <span style="color:#8b8fa8">// 多条命令合并</span>
+  }
+  <span style="color:#6c8cff">if</span> (p.permission === <span style="color:#22d3ee">"edit"</span> || p.permission === <span style="color:#22d3ee">"write"</span>) {
+    toolInput.file_path = patterns[0];          <span style="color:#8b8fa8">// 要修改的路径</span>
+  }
+
+  <span style="color:#6c8cff">return</span> makePayload(<span style="color:#22d3ee">"PermissionRequest"</span>, p.sessionID, cwd, {
+    tool_name: toolName,
+    tool_input: toolInput,
+    _opencode_request_id: p.id,  <span style="color:#8b8fa8">// 存起来，之后回应用</span>
+  });
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="fn-box">
+    <div class="fn-header">
+      <span class="fn-name">mapEvent — session.status → idle</span>
+      <span class="tag tag-event">EVENT</span>
+      <span class="fn-source">open-island.js</span>
+    </div>
+    <div class="fn-desc">
+      <strong>触发：</strong>Agent 完成了所有工作，进入空闲状态。<br>
+      <strong>做的事情：</strong>发 Stop 事件，附带助手最后一条消息。桌面 App 用这个更新 UI 状态。
+    </div>
+    <div class="fn-body">
+<pre><code><span style="color:#6c8cff">if</span> (t === <span style="color:#22d3ee">"session.status"</span> && p.sessionID) {
+  <span style="color:#6c8cff">if</span> (p.status?.type === <span style="color:#22d3ee">"idle"</span>) {
+    <span style="color:#6c8cff">const</span> s = getSession(p.sessionID);
+    <span style="color:#6c8cff">return</span> makePayload(<span style="color:#22d3ee">"Stop"</span>, p.sessionID, sessionCwd.get(p.sessionID), {
+      last_assistant_message: s.lastAssistantText  <span style="color:#8b8fa8">// 助手的最后一句</span>
+    });
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>3. 工具函数</h2>
+  <div class="section-desc">
+    插件里反复用到的片段。
+  </div>
+
+  <div class="fn-box">
+    <div class="fn-header">
+      <span class="fn-name">makePayload</span>
+      <span class="tag tag-util">UTIL</span>
+      <span class="fn-source">open-island.js</span>
+    </div>
+    <div class="fn-desc">
+      <strong>功能：</strong>统一构造发给桌面 App 的消息体。<br>
+      所有事件最终都包装成 <code>processOpenCodeHook</code> 类型，<code>openCodeHook</code> 里带事件名、session_id、cwd。
+    </div>
+    <div class="fn-body">
+<pre><code><span style="color:#6c8cff">function</span> makePayload(hookEventName, sessionID, cwd, extra = {}) {
+  <span style="color:#6c8cff">return</span> {
+    type: <span style="color:#22d3ee">"processOpenCodeHook"</span>,
+    openCodeHook: {
+      hook_event_name: hookEventName,  <span style="color:#8b8fa8">// "SessionStart" / "UserPromptSubmit" / ...</span>
+      session_id: <span style="color:#22d3ee">"opencode-"</span> + sessionID,  <span style="color:#8b8fa8">// 统一加前缀</span>
+      cwd: cwd || <span style="color:#22d3ee">"."</span>,
+      ...terminalFields(),  <span style="color:#8b8fa8">// 自动注入终端环境字段</span>
+      ...extra,             <span style="color:#8b8fa8">// 事件特定的额外字段</span>
+    },
+  };
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="fn-box">
+    <div class="fn-header">
+      <span class="fn-name">terminalFields + detectTty</span>
+      <span class="tag tag-util">UTIL</span>
+      <span class="fn-source">open-island.js</span>
+    </div>
+    <div class="fn-desc">
+      <strong>功能：</strong>检测用户正在使用的终端类型和 TTY 设备。<br>
+      方法：从进程树向上遍历 8 层，找第一个不是 "?" 的 TTY。<br>
+      支持：iTerm2、cmux、Zellij、Ghostty、Apple Terminal。
+    </div>
+    <div class="fn-body">
+<pre><code><span style="color:#8b8fa8">// 检测 TTY 设备（从进程树向上走）</span>
+<span style="color:#6c8cff">let</span> detectedTty = null;
+<span style="color:#6c8cff">try</span> {
+  <span style="color:#6c8cff">let</span> walkPid = process.pid;
+  <span style="color:#6c8cff">for</span> (<span style="color:#6c8cff">let</span> i = <span style="color:#facc15">0</span>; i < <span style="color:#facc15">8</span>; i++) {     <span style="color:#8b8fa8">// 最多往上翻 8 层</span>
+    <span style="color:#6c8cff">const</span> info = execSync(<span style="color:#22d3ee">"ps -o tty=,ppid= -p "</span> + walkPid).toString().trim();
+    <span style="color:#6c8cff">const</span> parts = info.split(/\s+/);
+    <span style="color:#6c8cff">const</span> tty = parts[0], ppid = parseInt(parts[1]);
+    <span style="color:#6c8cff">if</span> (tty && tty !== <span style="color:#22d3ee">"??"</span> && tty !== <span style="color:#22d3ee">"?"</span>) {
+      detectedTty = <span style="color:#22d3ee">"/dev/"</span> + tty; <span style="color:#6c8cff">break</span>;
+    }
+    <span style="color:#6c8cff">if</span> (!ppid || ppid <= <span style="color:#facc15">1</span>) <span style="color:#6c8cff">break</span>;
+    walkPid = ppid;  <span style="color:#8b8fa8">// 往父进程走</span>
+  }
+} <span style="color:#6c8cff">catch</span> {}
+
+<span style="color:#8b8fa8">// 根据环境变量判断终端种类</span>
+<span style="color:#6c8cff">function</span> terminalFields() {
+  <span style="color:#6c8cff">const</span> env = process.env;
+  <span style="color:#6c8cff">if</span> (env.ITERM_SESSION_ID)      <span style="color:#6c8cff">return</span> { terminal_app: <span style="color:#22d3ee">"iTerm"</span>,     terminal_session_id: env.ITERM_SESSION_ID };
+  <span style="color:#6c8cff">if</span> (env.GHOSTTY_RESOURCES_DIR) <span style="color:#6c8cff">return</span> { terminal_app: <span style="color:#22d3ee">"Ghostty"</span> };
+  <span style="color:#6c8cff">if</span> (env.TERM_PROGRAM === <span style="color:#22d3ee">"Apple_Terminal"</span>) <span style="color:#6c8cff">return</span> { terminal_app: <span style="color:#22d3ee">"Terminal"</span> };
+  <span style="color:#6c8cff">if</span> (env.TERM_PROGRAM)           <span style="color:#6c8cff">return</span> { terminal_app: env.TERM_PROGRAM };
+  <span style="color:#6c8cff">return</span> {};
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="fn-box">
+    <div class="fn-header">
+      <span class="fn-name">normalizeQuestion</span>
+      <span class="tag tag-util">UTIL</span>
+      <span class="fn-source">open-island.js</span>
+    </div>
+    <div class="fn-desc">
+      <strong>功能：</strong>标准化 opencode 的"问题"格式。opencode 可能发各种格式的问题（字段名不统一），这个函数统一成 <code>{ question, header, options }</code>。
+    </div>
+    <div class="fn-body">
+<pre><code><span style="color:#6c8cff">function</span> normalizeQuestion(question, index) {
+  <span style="color:#6c8cff">if</span> (!question || <span style="color:#6c8cff">typeof</span> question !== <span style="color:#22d3ee">"object"</span>) <span style="color:#6c8cff">return</span> null;
+
+  <span style="color:#8b8fa8">// 三种可能的字段名</span>
+  <span style="color:#6c8cff">const</span> questionText = question.question
+                     || question.title
+                     || question.prompt;
+  <span style="color:#6c8cff">if</span> (!questionText) <span style="color:#6c8cff">return</span> null;
+
+  <span style="color:#8b8fa8">// 选项也标准化：label / description / allowsFreeform</span>
+  <span style="color:#6c8cff">const</span> options = question.options
+    .map(normalizeQuestionOption)
+    .filter(Boolean);
+
+  <span style="color:#6c8cff">return</span> {
+    question: String(questionText),
+    header: question.header || question.label || <span style="color:#22d3ee">"Question "</span> + (index + <span style="color:#facc15">1</span>),
+    options,
+  };
+}
+
+<span style="color:#6c8cff">function</span> normalizeQuestionOption(option) {
+  <span style="color:#6c8cff">if</span> (<span style="color:#6c8cff">typeof</span> option === <span style="color:#22d3ee">"string"</span>) <span style="color:#6c8cff">return</span> { label: option };
+  <span style="color:#6c8cff">const</span> label = option.label || option.text || option.value || option.name;
+  <span style="color:#6c8cff">if</span> (!label) <span style="color:#6c8cff">return</span> null;
+  <span style="color:#6c8cff">return</span> {
+    label: String(label),
+    description: option.description || option.hint || option.detail || <span style="color:#22d3ee">""</span>,
+    allows_freeform: Boolean(option.allowsFreeform || option.allows_freeform),
+  };
+}</code></pre>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>4. 插件骨架</h2>
+  <div class="section-desc">
+    这两个插件共同的<strong>最小结构</strong>。移除所有业务逻辑后，插件的"形状"只有这么一点。
+  </div>
+
+  <div class="fn-box">
+    <div class="fn-header">
+      <span class="fn-name">export default</span>
+      <span class="tag tag-flow">FLOW</span>
+      <span class="fn-source">两个插件一致</span>
+    </div>
+    <div class="fn-body">
+<pre><code><span style="color:#8b8fa8">// 一个 opencode 插件 = 一个默认导出的 async 函数
+// 返回两个 handler：event 和 shell.env</span>
+export <span style="color:#6c8cff">default async function</span>({ client, serverUrl, directory }) {
+  <span style="color:#8b8fa8">// 初始化：连 socket、建缓存、记日志...</span>
+
+  <span style="color:#6c8cff">return</span> {
+    <span style="color:#22d3ee">"event"</span>: <span style="color:#6c8cff">async function</span>({ event }) {
+      <span style="color:#8b8fa8">// opencode 每产生一个事件都会调这个函数
+      // event.type: "session.created" | "message.part.updated" | "permission.asked" | ...</span>
+      <span style="color:#6c8cff">const</span> mapped = mapEvent(event);   <span style="color:#8b8fa8">// 转成自己的消息格式</span>
+      <span style="color:#6c8cff">if</span> (!mapped) <span style="color:#6c8cff">return</span>;
+
+      <span style="color:#6c8cff">if</span> (需要用户交互) {
+        sendAndWaitResponse(mapped).then(handleReply);  <span style="color:#8b8fa8">// 等用户答复</span>
+      } <span style="color:#6c8cff">else</span> {
+        sendToSocket(mapped);  <span style="color:#8b8fa8">// 普通的通知，发完不管</span>
+      }
+    },
+
+    <span style="color:#22d3ee">"shell.env"</span>: <span style="color:#6c8cff">async function</span>(input, output) {
+      <span style="color:#8b8fa8">// opencode 每次创建子进程时调这个函数
+      // 把终端环境变量注入子进程</span>
+      output.env.OPEN_ISLAND_ACTIVE = <span style="color:#22d3ee">"1"</span>;
+    },
+  };
+}</code></pre>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>5. 总结：这些函数教会你什么</h2>
+
+  <div class="callout">
+    <p>
+      <strong>如果你要写自己的 opencode，你的框架需要：</strong>
+    </p>
+    <ul>
+      <li>一个 <strong>event system</strong>：能在关键节点（session 开始、tool call、模型返回文字）发出事件</li>
+      <li>一个 <strong>plugin 加载器</strong>：扫描目录、import JS 文件、调用 default export、传 <code>{ client, serverUrl, directory }</code></li>
+      <li>一个 <strong>permission 系统</strong>：模型想跑 bash/改文件时，拦住、问用户、等回复</li>
+      <li>一个 <strong>socket 通信</strong>：支持 fire-and-forget 和 wait-reply 两种模式</li>
+    </ul>
+    <p style="margin-top:12px">
+      但这些都是 Month 3 的事。你现在只要能跑通 <code>hello-llm</code> 的 API 调用和 tool calling 循环就够——有了地基，上面这些东西只是选配。
+    </p>
+  </div>
+
+</main>
+</body>
+</html>

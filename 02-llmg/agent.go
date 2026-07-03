@@ -2,7 +2,10 @@ package llmg
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"strings"
 )
 
 // ToolExecutor defines a set of tools and their execution logic.
@@ -47,18 +50,20 @@ func (m *MultiExecutor) Execute(tc ToolCall) (string, error) {
 // input, then iterates: chat → tool calls → tool results → chat again
 // until the LLM stops requesting tools or maxTurns is exhausted.
 type Agent struct {
-	client   *Client
-	executor ToolExecutor
-	messages []Message
-	maxTurns int
+	client           *Client
+	executor         ToolExecutor
+	messages         []Message
+	maxTurns         int
+	maxToolResultLen int // cap tool result bytes (0 = default 8000)
 }
 
 // AgentConfig configures a new Agent.
 type AgentConfig struct {
-	Client   *Client
-	Executor  ToolExecutor
-	System   string
-	MaxTurns int
+	Client           *Client
+	Executor         ToolExecutor
+	System           string
+	MaxTurns         int  // max tool-calling turns per user message (default 10)
+	MaxToolResultLen int  // cap tool result bytes (default 8000)
 }
 
 func NewAgent(cfg AgentConfig) *Agent {
@@ -69,6 +74,10 @@ func NewAgent(cfg AgentConfig) *Agent {
 	}
 	if a.maxTurns <= 0 {
 		a.maxTurns = 10
+	}
+	a.maxToolResultLen = cfg.MaxToolResultLen
+	if a.maxToolResultLen <= 0 {
+		a.maxToolResultLen = 8000
 	}
 	if cfg.System != "" {
 		a.messages = append(a.messages, Message{Role: RoleSystem, Content: cfg.System})
@@ -91,6 +100,12 @@ func (a *Agent) Reset(system string) {
 
 func (a *Agent) Send(ctx context.Context, input string) (string, error) {
 	a.messages = append(a.messages, Message{Role: RoleUser, Content: input})
+
+	var lastCall struct {
+		name string
+		hash string
+	}
+
 	for turn := 0; turn < a.maxTurns; turn++ {
 		resp, err := a.client.Chat(ctx, &ChatRequest{
 			Messages: a.messages,
@@ -111,16 +126,37 @@ func (a *Agent) Send(ctx context.Context, input string) (string, error) {
 			})
 			return msg.Content, nil
 		}
+
+		// Detect loop: same tool + same args hash = force stop.
+		for _, tc := range msg.ToolCalls {
+			hash := a.hashCall(tc.Function.Name, tc.Function.Arguments)
+			if lastCall.name == tc.Function.Name && lastCall.hash == hash {
+				content := msg.Content
+				if content == "" {
+					content = "(tool loop detected — stopping)"
+				}
+				a.messages = append(a.messages, Message{
+					Role:    RoleAssistant,
+					Content: content,
+				})
+				return content, nil
+			}
+			lastCall.name = tc.Function.Name
+			lastCall.hash = hash
+		}
+
 		a.messages = append(a.messages, Message{
 			Role:      RoleAssistant,
 			Content:   msg.Content,
 			ToolCalls: msg.ToolCalls,
 		})
+
 		for _, tc := range msg.ToolCalls {
 			result, execErr := a.executor.Execute(tc)
 			if execErr != nil {
 				result = fmt.Sprintf(`{"error": "%s"}`, execErr.Error())
 			}
+			result = a.truncateResult(result)
 			a.messages = append(a.messages, Message{
 				Role:       RoleTool,
 				ToolCallID: tc.ID,
@@ -128,6 +164,7 @@ func (a *Agent) Send(ctx context.Context, input string) (string, error) {
 			})
 		}
 	}
+
 	return "", fmt.Errorf("exceeded max tool-calling turns (%d)", a.maxTurns)
 }
 
@@ -154,6 +191,12 @@ func (a *Agent) SendStream(ctx context.Context, input string) (<-chan AgentEvent
 	eventCh := make(chan AgentEvent, 64)
 	go func() {
 		defer close(eventCh)
+
+		var lastCall struct {
+			name string
+			hash string
+		}
+
 		for turn := 0; turn < a.maxTurns; turn++ {
 			streamCh, err := a.client.ChatStream(ctx, &ChatRequest{
 				Messages: a.messages,
@@ -187,16 +230,34 @@ func (a *Agent) SendStream(ctx context.Context, input string) (<-chan AgentEvent
 				eventCh <- AgentEvent{Type: AgentEventDone}
 				return
 			}
+
+			// Detect loop: same tool + same args hash = force stop.
+			for _, tc := range toolCalls {
+				hash := a.hashCall(tc.Function.Name, tc.Function.Arguments)
+				if lastCall.name == tc.Function.Name && lastCall.hash == hash {
+					a.messages = append(a.messages, Message{
+						Role:    RoleAssistant,
+						Content: fullText,
+					})
+					eventCh <- AgentEvent{Type: AgentEventDone}
+					return
+				}
+				lastCall.name = tc.Function.Name
+				lastCall.hash = hash
+			}
+
 			a.messages = append(a.messages, Message{
 				Role:      RoleAssistant,
 				Content:   fullText,
 				ToolCalls: toolCalls,
 			})
+
 			for _, tc := range toolCalls {
 				result, execErr := a.executor.Execute(tc)
 				if execErr != nil {
 					result = fmt.Sprintf(`{"error": "%s"}`, execErr.Error())
 				}
+				result = a.truncateResult(result)
 				eventCh <- AgentEvent{
 					Type:     AgentEventToolResult,
 					ToolName: tc.Function.Name,
@@ -209,7 +270,28 @@ func (a *Agent) SendStream(ctx context.Context, input string) (<-chan AgentEvent
 				})
 			}
 		}
+
 		eventCh <- AgentEvent{Type: AgentEventError, Err: fmt.Errorf("exceeded max turns")}
 	}()
 	return eventCh, nil
+}
+
+// hashCall returns a short hash of tool name + arguments for loop detection.
+func (a *Agent) hashCall(name, args string) string {
+	h := sha256.Sum256([]byte(name + "\x00" + args))
+	return hex.EncodeToString(h[:8])
+}
+
+// truncateResult caps the tool result to maxToolResultLen bytes.
+func (a *Agent) truncateResult(result string) string {
+	if a.maxToolResultLen <= 0 || len(result) <= a.maxToolResultLen {
+		return result
+	}
+	cut := result[:a.maxToolResultLen]
+	note := fmt.Sprintf("\n... [truncated at %d bytes, total %d]", a.maxToolResultLen, len(result))
+	// Inject truncation note before closing brace if result looks JSON.
+	if idx := strings.LastIndex(cut, "}"); idx > 0 {
+		return cut[:idx] + note + "}"
+	}
+	return cut + note
 }

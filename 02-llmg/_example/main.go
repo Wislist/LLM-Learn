@@ -32,7 +32,17 @@ func main() {
 	agent := llmg.NewAgent(llmg.AgentConfig{
 		Client:   client,
 		Executor: executor,
-		System:   "你是终端助手，能读写文件、执行命令、搜索代码。回答简洁，代码优先。",
+		MaxTurns: 15,
+		System: strings.Join([]string{
+			"你是终端助手，可以读写文件、执行 shell 命令、搜索代码。",
+			"",
+			"行为准则：",
+			"- 每次调工具前先想清楚：这次调用能获得什么新信息？",
+			"- 如果工具返回了你需要的数据，直接给用户回答，不要再调同一个工具。",
+			"- 读文件最多读一次；如果内容太长被截断，告知用户并用 search_content 精准搜索。",
+			"- 一个任务完成后，给出简洁总结，不要再追加工具调用。",
+			"- 回答简洁，代码优先。",
+		}, "\n"),
 	})
 
 	scanner := bufio.NewScanner(os.Stdin)

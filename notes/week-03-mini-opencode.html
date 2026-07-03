@@ -1,0 +1,164 @@
+ <!DOCTYPE html>
+ <html lang="zh-CN">
+ <head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>mini-opencode 架构笔记 | LLM-Learn</title>
+ <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+ <style>
+   :root {
+     --bg: #0f1117; --surface: #1a1c25; --border: #2a2d3a;
+     --text: #e1e4ed; --text-dim: #8b8fa8; --accent: #6c8cff;
+     --green: #4ade80; --orange: #fb923c; --cyan: #22d3ee;
+     --pink: #e879f9; --yellow: #facc15; --code-bg: #151721; --max-w: 880px;
+   }
+   * { margin: 0; padding: 0; box-sizing: border-box; }
+   body { font-family: -apple-system, BlinkMacSystemFont, "SF Mono", "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; -webkit-font-smoothing: antialiased; }
+   main { max-width: var(--max-w); margin: 0 auto; padding: 48px 32px 100px; }
+   h1 { font-size: 30px; font-weight: 700; margin-bottom: 8px; background: linear-gradient(135deg, var(--accent), var(--cyan)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+   .meta { color: var(--text-dim); font-size: 14px; margin-bottom: 40px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+   h2 { font-size: 20px; font-weight: 600; margin-top: 44px; margin-bottom: 12px; color: var(--text); }
+   h3 { font-size: 16px; font-weight: 600; margin-top: 28px; margin-bottom: 8px; color: var(--cyan); }
+   p { margin-bottom: 14px; }
+   strong { color: #fff; }
+   code { font-family: "SF Mono", monospace; font-size: 13px; background: var(--code-bg); padding: 2px 7px; border-radius: 4px; border: 1px solid var(--border); }
+   pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 20px; overflow-x: auto; margin-bottom: 20px; font-size: 13px; line-height: 1.5; }
+   .callout { background: var(--surface); border-left: 3px solid var(--accent); padding: 16px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px; }
+   .mermaid-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin-bottom: 24px; overflow-x: auto; }
+   .file-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; margin-bottom: 14px; }
+   .file-card h4 { font-family: "SF Mono", monospace; font-size: 15px; color: var(--cyan); margin-bottom: 4px; }
+   .file-card .loc { font-size: 12px; color: var(--text-dim); margin-bottom: 10px; }
+   .file-card .points { list-style: none; padding-left: 0; }
+   .file-card .points li { font-size: 14px; padding: 3px 0; display: flex; align-items: baseline; gap: 8px; }
+   .file-card .points li::before { content: "\25B8"; color: var(--accent); font-size: 12px; flex-shrink: 0; }
+   .pitfall { background: rgba(251,146,60,0.08); border: 1px solid rgba(251,146,60,0.2); border-radius: 8px; padding: 16px 20px; margin-bottom: 12px; }
+   .pitfall h4 { color: var(--orange); font-size: 14px; margin-bottom: 4px; }
+   .pitfall p { font-size: 14px; margin-bottom: 0; color: var(--text-dim); }
+   table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 14px; }
+   th { background: var(--surface); padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); color: var(--text-dim); font-size: 12px; text-transform: uppercase; }
+   td { padding: 8px 14px; border-bottom: 1px solid var(--border); }
+ </style>
+ </head>
+ <body>
+ <main>
+ <h1>mini-opencode 架构笔记</h1>
+ <div class="meta">478 行 / 6 个文件 &mdash; 一个可用的 CLI Agent 框架 &mdash; 2026-07-02</div>
+ 
+ <div class="callout"><p>这份笔记不是"告诉你代码怎么写"&mdash;代码已经写好了。这份笔记是告诉你<strong>为什么要这么设计</strong>，以及你从每个文件里能学到什么。</p></div>
+ 
+ <h2>1. 全景架构</h2>
+ <p>从 <code>02-llmg/_example/main.go</code> 到 <code>03-mini-opencode/</code> 的最大变化：代码从一个 130 行的 demo 脚本变成了 6 个独立模块。每个模块有清晰的边界。</p>
+ <div class="mermaid-box"><div class="mermaid">
+ flowchart TB
+   main[main.go / CLI入口] --> agent[agent.go / Agent核心循环]
+   agent --> tools[tools.go / Tool Registry]
+   agent --> bash[bash.go / Bash执行]
+   agent --> history[history.go / 对话历史]
+   agent --> config[config.go / 配置]
+   agent --> llmg[02-llmg / LLM通信层]
+   style main fill:#1a1c25,stroke:#e879f9
+   style agent fill:#1e1a2a,stroke:#6c8cff
+   style tools fill:#1a1c25,stroke:#4ade80
+   style bash fill:#1a1c25,stroke:#fb923c
+   style history fill:#1a1c25,stroke:#22d3ee
+   style config fill:#1a1c25,stroke:#8b8fa8
+   style llmg fill:#151721,stroke:#6c8cff,stroke-dasharray: 5 5
+ </div></div>
+ 
+ <h2>2. 文件详解</h2>
+ 
+ <div class="file-card">
+ <h4>config.go</h4><div class="loc">19 行</div>
+ <ul class="points">
+ <li>集中所有可调参数：API key、模型名、最大轮数、历史长度上限</li>
+ <li><strong>学什么：</strong>参数集中在一个 struct 里不是过度设计。当你想加 temperature、自定义 system prompt 时只需要改这一个文件</li>
+ </ul></div>
+ 
+ <div class="file-card">
+ <h4>tools.go</h4><div class="loc">154 行 &mdash; 最大的文件</div>
+ <ul class="points">
+ <li>定义 Tool 接口：Name() / Description() / Schema() / Execute()</li>
+ <li><strong>为什么用接口：</strong>每个工具是一组关联的 name + desc + schema + execute。ToolRegistry 不需要知道每个工具内部怎么实现，只要它能回答"你叫什么、你有什么参数、你执行"</li>
+ <li><strong>为什么 Schema 和 Execute 分开：</strong>Schema 发给 LLM 做工具选择，Execute 发给 OS 做真正干活。两个调用方不需要彼此知道细节</li>
+ <li>ToolRegistry 维护两个数据结构：map[name]Tool 用来 O(1) 派发，order []string 用来保持注册顺序</li>
+ </ul></div>
+ 
+ <div class="file-card">
+ <h4>bash.go</h4><div class="loc">69 行</div>
+ <ul class="points">
+ <li>封装 os/exec 调用，三层安全：30s 超时、输出截断 4KB、工作目录锁定项目根</li>
+ <li>Exit code 单独返回，模型能区分"命令成功但输出为空"和"命令失败"</li>
+ </ul></div>
+ 
+ <div class="file-card">
+ <h4>history.go</h4><div class="loc">51 行</div>
+ <ul class="points">
+ <li>封装消息列表，对外只暴露 Add() 和 Messages()</li>
+ <li><strong>截断保证偶数条：</strong>tool call 消息成对出现（assistant tool_calls + tool result），裁奇数条会拆散配对</li>
+ <li>Messages() 每次返回新 slice，避免并发修改</li>
+ </ul></div>
+ 
+ <div class="file-card">
+ <h4>agent.go</h4><div class="loc">122 行 &mdash; 核心</div>
+ <ul class="points">
+ <li>Agent.Run() 就是"Agent Loop"：发送 → 解析 → 检查 tool_calls → 执行 → 拼回 → 循环</li>
+ <li><strong>关键设计：</strong>System prompt 每次 Run() 时动态生成（prompt + tool list）。如果运行时注册/卸载工具，system prompt 自动反映当前工具集</li>
+ <li>output io.Writer 字段：测试时换成 bytes.Buffer 就能抓取所有输出</li>
+ </ul></div>
+ 
+ <div class="file-card">
+ <h4>main.go</h4><div class="loc">63 行</div>
+ <ul class="points">
+ <li>用 switch 做命令解析：/help /clear /tools exit</li>
+ <li>/clear 不重置 system prompt——"你是谁、你有什么工具"始终保留</li>
+ <li>bufio.Scanner 而非 fmt.Scanln：正确处理空行、中文、长输入</li>
+ </ul></div>
+ 
+ <h2>3. 一次对话的完整生命周期</h2>
+ <div class="mermaid-box"><div class="mermaid">
+ sequenceDiagram
+   participant User
+   participant Agent
+   participant History
+   participant LLM
+   participant Tools
+   User->>Agent: "帮我创建 hello.go"
+   Agent->>History: Add(user)
+   loop Agent Loop (max 10 turns)
+     Agent->>LLM: ChatStream(messages + tools)
+     LLM->>Agent: tool_call: write_file(...)
+     Agent->>History: Add(assistant tool_calls)
+     Agent->>Tools: Execute("write_file", args)
+     Tools->>Agent: {"success": true}
+     Agent->>History: Add(tool result)
+     Agent->>LLM: ChatStream(messages + tools)
+     LLM->>Agent: "已创建 hello.go"
+     Agent->>History: Add(assistant final)
+     Agent->>User: 打印回复
+   end
+ </div></div>
+ 
+ <h2>4. 从 02 到 03 的演化</h2>
+ <table>
+ <tr><th>维度</th><th>02-llmg/_example</th><th>03-mini-opencode</th></tr>
+ <tr><td>工具管理</td><td>硬编码 switch/case</td><td>Tool 接口 + Registry</td></tr>
+ <tr><td>对话历史</td><td>[]Message 裸切片</td><td>History 类型（含截断）</td></tr>
+ <tr><td>Agent 循环</td><td>for 循环内联在 main</td><td>Agent.Run() 独立方法</td></tr>
+ <tr><td>System prompt</td><td>一行字符串</td><td>动态生成（prompt + tool list）</td></tr>
+ <tr><td>CLI 命令</td><td>只有 exit</td><td>/help /clear /tools exit</td></tr>
+ <tr><td>Bash 工具</td><td>无</td><td>含超时 + 截断 + exit code</td></tr>
+ <tr><td>可测试性</td><td>全耦合，不可单测</td><td>output io.Writer 可注入</td></tr>
+ </table>
+ 
+ <h2>5. 踩过的四个坑</h2>
+ <div class="pitfall"><h4>1. 流式 tool_calls 逐字符推送</h4><p>streamChoice.Delta.ToolCalls 用了完整的 ToolCall 类型，但流式下每个 chunk 只是增量。修复：换成 toolCallDelta（所有字段用 pointer），在 tcAccumulator 里按 index 归并。</p></div>
+ <div class="pitfall"><h4>2. finish() 重复发文本 → 无限循环</h4><p>tcAccumulator.finish() 把已发出的文本又发了一次，response 在对话历史里成双份。LLM 看到自己说了两遍就重复。修复：finish() 只发 tool call + done。</p></div>
+ <div class="pitfall"><h4>3. tool_call_id 缺失 → 400 错误</h4><p>tool 结果拼回对话时忘了 tool_call_id。修复：Message 加 ToolCallID 字段。</p></div>
+ <div class="pitfall"><h4>4. assistant tool_calls 消息未保留</h4><p>只追了 user + tool 结果，忘了 assistant 的 tool_calls。LLM 看不到谁发起的调用。修复：追 tool 结果前先追 assistant 消息（含 ToolCalls）。</p></div>
+ 
+ <h2>6. 接下来</h2>
+ <div class="callout"><p><strong>短期：</strong>search_code 工具、/model 命令、system prompt 文件化、bash sandbox</p><p style="margin-top:10px"><strong>中期：</strong>子 Agent（Planner/Coder/Reviewer）、MCP 协议、对话持久化、Trace</p></div>
+ </main>
+ <script>mermaid.initialize({startOnLoad:true,theme:'dark',themeVariables:{background:'#1a1c25',primaryColor:'#6c8cff',secondaryColor:'#4ade80',tertiaryColor:'#fb923c',primaryTextColor:'#e1e4ed',lineColor:'#2a2d3a',fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif'}});</script>
+ </body>
+ </html>

@@ -41,12 +41,17 @@ type ToolOutput struct {
 }
 
 type ToolRegistry struct {
-	tools map[string]Tool
-	order []string
+	tools  map[string]Tool
+	order  []string
+	policy PermissionPolicy
 }
 
 func NewToolRegistry() *ToolRegistry {
 	return &ToolRegistry{tools: map[string]Tool{}}
+}
+
+func (r *ToolRegistry) SetPermissionPolicy(policy PermissionPolicy) {
+	r.policy = policy
 }
 
 func (r *ToolRegistry) Register(tool Tool) error {
@@ -78,6 +83,32 @@ func (r *ToolRegistry) Run(ctx context.Context, call ToolCall) ToolResult {
 			ToolCallID: call.ID,
 			Name:       call.Name,
 			Error:      "unknown tool",
+		}
+	}
+	definition := tool.Definition()
+	if r.policy != nil {
+		decision := r.policy.Check(ctx, call, definition)
+		switch decision.Action {
+		case PermissionDeny:
+			return ToolResult{
+				ToolCallID: call.ID,
+				Name:       call.Name,
+				Error:      "permission denied: " + decision.Reason,
+				Metadata: map[string]any{
+					"permission": string(PermissionDeny),
+					"reason":     decision.Reason,
+				},
+			}
+		case PermissionConfirm:
+			return ToolResult{
+				ToolCallID: call.ID,
+				Name:       call.Name,
+				Error:      "permission confirmation required: " + decision.Reason,
+				Metadata: map[string]any{
+					"permission": string(PermissionConfirm),
+					"reason":     decision.Reason,
+				},
+			}
 		}
 	}
 

@@ -46,6 +46,18 @@ Agent tools expose a `ToolDefinition` and run with structured input/output:
 
 The metadata channel is reserved for values such as `cwd`, `exit_code`, `job_id`, truncation flags, and other tool-specific fields.
 
+## Permissions
+
+`ToolRegistry` can be configured with a `PermissionPolicy` before running tools.
+
+The default policy currently checks:
+
+- banned shell command fragments such as `sudo`, `git push`, and `git reset --hard`
+- `path` and `working_dir` arguments escaping the configured workspace
+- tool behavior flags such as `dangerous` and `requires_confirmation`
+
+Denied calls return a `ToolResult` with `permission=deny` metadata. Calls that require confirmation return `permission=confirm` metadata; the interactive confirmation UI will be handled by the future TUI layer.
+
 ## Instruction rendering
 
 Tool instructions live beside the tool package as `.md` or `.md.tpl` files.

@@ -59,8 +59,10 @@ func (r *ToolRegistry) ToolPrompt() string {
 
 type readFileTool struct{}
 
-func (t *readFileTool) Name() string        { return "read_file" }
-func (t *readFileTool) Description() string { return "读取文件内容（带行号）。" }
+func (t *readFileTool) Name() string { return "read_file" }
+func (t *readFileTool) Description() string {
+	return "读取文件内容（带行号）。支持 offset/limit 只读片段，避免大文件撑爆上下文。"
+}
 
 func (t *readFileTool) Schema() llmg.Tool {
 	return llmg.Tool{
@@ -71,7 +73,9 @@ func (t *readFileTool) Schema() llmg.Tool {
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"path": map[string]any{"type": "string", "description": "文件路径"},
+					"path":   map[string]any{"type": "string", "description": "文件路径"},
+					"offset": map[string]any{"type": "integer", "description": "起始行号（1-based，默认 1）"},
+					"limit":  map[string]any{"type": "integer", "description": "最多返回的行数（默认 2000）"},
 				},
 				"required": []string{"path"},
 			},
@@ -80,21 +84,53 @@ func (t *readFileTool) Schema() llmg.Tool {
 }
 
 func (t *readFileTool) Execute(args string) (string, error) {
-	var params struct{ Path string }
-	json.Unmarshal([]byte(args), &params)
+	var params struct {
+		Path   string `json:"path"`
+		Offset int    `json:"offset"`
+		Limit  int    `json:"limit"`
+	}
+	if err := json.Unmarshal([]byte(args), &params); err != nil {
+		return "", fmt.Errorf("read_file: invalid args: %w", err)
+	}
+	if params.Path == "" {
+		return "", fmt.Errorf("read_file: path is required")
+	}
+	if params.Offset < 1 {
+		params.Offset = 1
+	}
+	if params.Limit <= 0 {
+		params.Limit = 2000
+	}
+	if params.Limit > 2000 {
+		params.Limit = 2000
+	}
+
 	data, err := os.ReadFile(params.Path)
 	if err != nil {
 		return "", fmt.Errorf("read_file: %w", err)
 	}
-	if len(data) > 100*1024 {
-		data = data[:100*1024]
-	}
 	lines := strings.Split(string(data), "\n")
-	var sb strings.Builder
-	for i, line := range lines {
-		fmt.Fprintf(&sb, "%4d| %s\n", i+1, line)
+	total := len(lines)
+
+	start := params.Offset - 1
+	if start > total {
+		start = total
 	}
-	out, _ := json.Marshal(map[string]any{"content": sb.String(), "lines": len(lines)})
+	end := start + params.Limit
+	if end > total {
+		end = total
+	}
+
+	var sb strings.Builder
+	for i := start; i < end; i++ {
+		fmt.Fprintf(&sb, "%4d| %s\n", i+1, lines[i])
+	}
+	out, _ := json.Marshal(map[string]any{
+		"content":     sb.String(),
+		"lines":       end - start,
+		"total_lines": total,
+		"offset":      start + 1,
+	})
 	return string(out), nil
 }
 
@@ -127,10 +163,12 @@ func (t *writeFileTool) Schema() llmg.Tool {
 
 func (t *writeFileTool) Execute(args string) (string, error) {
 	var params struct {
-		Path    string
-		Content string
+		Path    string `json:"path"`
+		Content string `json:"content"`
 	}
-	json.Unmarshal([]byte(args), &params)
+	if err := json.Unmarshal([]byte(args), &params); err != nil {
+		return "", fmt.Errorf("write_file: invalid args: %w", err)
+	}
 	if dir := pathDir(params.Path); dir != "." {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return "", fmt.Errorf("write_file: %w", err)

@@ -13,11 +13,13 @@ import (
 )
 
 type Session struct {
-	ID        string
-	Title     string
-	Model     string
-	CreatedAt string
-	UpdatedAt string
+	ID               string
+	Title            string
+	Model            string
+	CreatedAt        string
+	UpdatedAt        string
+	PromptTokens     int
+	CompletionTokens int
 }
 
 type SessionStore struct {
@@ -50,7 +52,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   title      TEXT,
   model      TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS messages (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,7 +65,13 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, seq);
 `)
-	return err
+	if err != nil {
+		return err
+	}
+	// 兼容旧库：补列（已存在则忽略错误）
+	s.db.Exec("ALTER TABLE sessions ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0")
+	s.db.Exec("ALTER TABLE sessions ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0")
+	return nil
 }
 
 func (s *SessionStore) CreateSession(title, model string) (string, error) {
@@ -103,6 +113,15 @@ func (s *SessionStore) AppendMessage(sessionID string, seq int, msg llmg.Message
 	return err
 }
 
+// AddUsage 累加 session 的 token 用量。
+func (s *SessionStore) AddUsage(sessionID string, prompt, completion int) error {
+	_, err := s.db.Exec(
+		`UPDATE sessions SET prompt_tokens=prompt_tokens+?, completion_tokens=completion_tokens+?, updated_at=? WHERE id=?`,
+		prompt, completion, time.Now().Format(time.RFC3339), sessionID,
+	)
+	return err
+}
+
 func (s *SessionStore) LoadMessages(sessionID string) ([]llmg.Message, error) {
 	rows, err := s.db.Query(
 		`SELECT payload FROM messages WHERE session_id=? ORDER BY seq ASC`,
@@ -130,11 +149,11 @@ func (s *SessionStore) LoadMessages(sessionID string) ([]llmg.Message, error) {
 
 func (s *SessionStore) LatestSession() (*Session, error) {
 	row := s.db.QueryRow(
-		`SELECT id, title, model, created_at, updated_at
+		`SELECT id, title, model, created_at, updated_at, prompt_tokens, completion_tokens
 		 FROM sessions ORDER BY updated_at DESC LIMIT 1`,
 	)
 	var sess Session
-	err := row.Scan(&sess.ID, &sess.Title, &sess.Model, &sess.CreatedAt, &sess.UpdatedAt)
+	err := row.Scan(&sess.ID, &sess.Title, &sess.Model, &sess.CreatedAt, &sess.UpdatedAt, &sess.PromptTokens, &sess.CompletionTokens)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -146,7 +165,7 @@ func (s *SessionStore) LatestSession() (*Session, error) {
 
 func (s *SessionStore) ListSessions(limit int) ([]Session, error) {
 	rows, err := s.db.Query(
-		`SELECT id, title, model, created_at, updated_at
+		`SELECT id, title, model, created_at, updated_at, prompt_tokens, completion_tokens
 		 FROM sessions ORDER BY updated_at DESC LIMIT ?`,
 		limit,
 	)
@@ -158,7 +177,7 @@ func (s *SessionStore) ListSessions(limit int) ([]Session, error) {
 	var out []Session
 	for rows.Next() {
 		var sess Session
-		if err := rows.Scan(&sess.ID, &sess.Title, &sess.Model, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
+		if err := rows.Scan(&sess.ID, &sess.Title, &sess.Model, &sess.CreatedAt, &sess.UpdatedAt, &sess.PromptTokens, &sess.CompletionTokens); err != nil {
 			return nil, err
 		}
 		out = append(out, sess)
@@ -168,11 +187,11 @@ func (s *SessionStore) ListSessions(limit int) ([]Session, error) {
 
 func (s *SessionStore) GetSession(id string) (*Session, error) {
 	row := s.db.QueryRow(
-		`SELECT id, title, model, created_at, updated_at FROM sessions WHERE id=?`,
+		`SELECT id, title, model, created_at, updated_at, prompt_tokens, completion_tokens FROM sessions WHERE id=?`,
 		id,
 	)
 	var sess Session
-	err := row.Scan(&sess.ID, &sess.Title, &sess.Model, &sess.CreatedAt, &sess.UpdatedAt)
+	err := row.Scan(&sess.ID, &sess.Title, &sess.Model, &sess.CreatedAt, &sess.UpdatedAt, &sess.PromptTokens, &sess.CompletionTokens)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

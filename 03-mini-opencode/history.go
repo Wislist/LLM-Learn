@@ -37,31 +37,38 @@ func (h *History) Add(msg llmg.Message) {
 	h.truncate()
 }
 
+// safeCutForward 返回 >= minCut 的最近 user 消息索引，
+// 保证 messages[返回值:] 以 user 开头（回合边界，无孤儿 tool）。
+// 找不到 user 时退化为 minCut（最后兜底，至少不会比原来更糟）。
+func (h *History) safeCutForward(minCut int) int {
+	for i := minCut; i < len(h.messages); i++ {
+		if h.messages[i].Role == llmg.RoleUser {
+			return i
+		}
+	}
+	return minCut
+}
+
+// safeCutBackward 返回 <= maxCut 的最近 user 消息索引，
+// 用于 Summarizable：保证 kept 部分 messages[返回值:] 以 user 开头。
+// 找不到返回 -1。
+func (h *History) safeCutBackward(maxCut int) int {
+	for i := maxCut; i > 0; i-- {
+		if h.messages[i].Role == llmg.RoleUser {
+			return i
+		}
+	}
+	return -1
+}
+
 func (h *History) truncate() {
 	if len(h.messages) <= h.maxMessages {
 		return
 	}
 	trim := len(h.messages) - h.maxMessages
-	for trim < len(h.messages) {
-		m := h.messages[trim]
-		if m.Role == llmg.RoleTool && trim > 0 {
-			prev := h.messages[trim-1]
-			if len(prev.ToolCalls) == 0 {
-				break
-			}
-		}
-		if m.Role == llmg.RoleAssistant && len(m.ToolCalls) > 0 && trim+1 < len(h.messages) {
-			if h.messages[trim+1].Role != llmg.RoleTool {
-				break
-			}
-		}
-		h.messages = h.messages[trim:]
-		return
-	}
-	if trim%2 != 0 {
-		trim++
-	}
-	h.messages = h.messages[trim:]
+	// 在 user 边界切，保证 kept 部分不以孤儿 tool 开头
+	cut := h.safeCutForward(trim)
+	h.messages = h.messages[cut:]
 }
 
 func (h *History) LoadSession(sessionID string) error {
@@ -86,3 +93,36 @@ func (h *History) Messages() []llmg.Message {
 }
 
 func (h *History) Clear() { h.messages = h.messages[:0] }
+
+// NeedsSummary 返回是否需要压缩历史（消息数超过 80% 上限）。
+func (h *History) NeedsSummary() bool {
+	threshold := int(float64(h.maxMessages) * 0.8)
+	return len(h.messages) >= threshold
+}
+
+// Summarizable 返回可被压缩的旧消息段。
+// 切点必须在 user 消息上：保证 kept 部分以 user 开头，
+// 摘要部分以完整回合结尾，不会产生孤儿 tool 消息。
+func (h *History) Summarizable() []llmg.Message {
+	half := len(h.messages) / 2
+	if half < 2 {
+		return nil
+	}
+	cut := h.safeCutBackward(half)
+	if cut <= 0 {
+		return nil // 找不到安全边界，不压缩
+	}
+	return h.messages[:cut]
+}
+
+// ReplaceWithSummary 用摘要消息替换掉旧的头部消息段。
+func (h *History) ReplaceWithSummary(summary string, oldCount int) {
+	if oldCount > len(h.messages) {
+		oldCount = len(h.messages)
+	}
+	summaryMsg := llmg.Message{
+		Role:    llmg.RoleAssistant,
+		Content: "[会话摘要] " + summary,
+	}
+	h.messages = append([]llmg.Message{summaryMsg}, h.messages[oldCount:]...)
+}

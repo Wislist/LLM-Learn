@@ -6,13 +6,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type MCPServerConfig struct {
+	Command string   `yaml:"command"`
+	Args    []string `yaml:"args"`
+}
+
 type Config struct {
-	APIKey      string `yaml:"api_key"`
-	Model       string `yaml:"model"`
-	MaxTurns    int    `yaml:"max_turns"`
-	MaxHist     int    `yaml:"max_hist"`
-	DBPath      string `yaml:"db_path"`
-	AutoApprove bool   `yaml:"auto_approve"`
+	APIKey      string                     `yaml:"api_key"`
+	Model       string                     `yaml:"model"`
+	MaxTurns    int                        `yaml:"max_turns"`
+	MaxHist     int                        `yaml:"max_hist"`
+	DBPath      string                     `yaml:"db_path"`
+	AutoApprove bool                       `yaml:"auto_approve"`
+	MCP         map[string]MCPServerConfig `yaml:"mcp"`
 }
 
 func LoadConfig() Config {

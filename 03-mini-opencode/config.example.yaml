@@ -7,3 +7,12 @@ max_turns: 10
 max_hist: 40
 db_path: ".mini-opencode/sessions.db"
 auto_approve: false   # true 则跳过破坏性操作的 [y/n] 确认
+
+# MCP server（stdio transport）。启动子进程，JSON-RPC over stdio 通信。
+# mcp:
+#   filesystem:
+#     command: node
+#     args: [/path/to/mcp-server-filesystem.js, /allowed/dir]
+#   github:
+#     command: npx
+#     args: [-y, @modelcontextprotocol/server-github]

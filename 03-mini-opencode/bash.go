@@ -38,8 +38,12 @@ func (t *bashTool) Schema() llmg.Tool {
 }
 
 func (t *bashTool) Execute(args string) (string, error) {
-	var params struct{ Command string }
-	json.Unmarshal([]byte(args), &params)
+	var params struct {
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal([]byte(args), &params); err != nil {
+		return "", fmt.Errorf("bash: invalid args: %w", err)
+	}
 	if strings.TrimSpace(params.Command) == "" {
 		return "", fmt.Errorf("bash: empty command")
 	}

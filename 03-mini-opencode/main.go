@@ -20,7 +20,7 @@ func main() {
 	client := llmg.New(llmg.WithDeepSeek(config.APIKey))
 	agent := NewAgent(client, config, workDir)
 
-	fmt.Printf("mini-opencode v0.2  (模型: %s)\n", config.Model)
+	fmt.Printf("mini-opencode v0.3  (模型: %s)\n", config.Model)
 	fmt.Println("命令: /help  /clear  /tools  /sessions  /new  /resume <id>  /session  /yes  exit")
 	fmt.Println()
 

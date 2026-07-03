@@ -1,0 +1,18 @@
+# build artifacts
+/backend/bin/
+/backend/data/
+/data/
+frontend/node_modules/
+frontend/.nuxt/
+frontend/.output/
+frontend/dist/
+
+# secrets
+.env
+
+# editor
+.vscode/
+.idea/
+
+# os
+.DS_Store

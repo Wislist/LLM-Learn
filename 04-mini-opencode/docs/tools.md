@@ -58,6 +58,25 @@ The default policy currently checks:
 
 Denied calls return a `ToolResult` with `permission=deny` metadata. Calls that require confirmation return `permission=confirm` metadata; the interactive confirmation UI will be handled by the future TUI layer.
 
+## Tool service
+
+`RegistryToolService` wraps `ToolRegistry` for future TUI usage.
+
+It exposes:
+
+- `ListTools`: stable tool metadata for menus/help views
+- `RunTool`: an event stream for a single tool call
+
+Tool execution emits:
+
+- `tool_started`
+- `tool_finished`
+- `tool_failed`
+- `tool_permission_required`
+- `tool_permission_denied`
+
+The TUI should subscribe to these events rather than calling concrete tools directly.
+
 ## Instruction rendering
 
 Tool instructions live beside the tool package as `.md` or `.md.tpl` files.

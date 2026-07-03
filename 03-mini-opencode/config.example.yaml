@@ -1,0 +1,9 @@
+# 复制本文件为 config.yaml 并填入真实 API Key
+# config.yaml 不会被 git 跟踪
+
+api_key: "sk-your-deepseek-api-key-here"
+model: "deepseek-chat"
+max_turns: 10
+max_hist: 40
+db_path: ".mini-opencode/sessions.db"
+auto_approve: false   # true 则跳过破坏性操作的 [y/n] 确认

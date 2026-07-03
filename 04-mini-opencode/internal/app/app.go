@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/wislist/mini-opencode/internal/agent"
+	"github.com/wislist/mini-opencode/internal/agent/prompt"
 )
 
 const version = "0.1.0"
@@ -66,14 +67,14 @@ func newRuntime() (*agent.Runtime, error) {
 		return nil, err
 	}
 
-	promptContext := agent.DefaultPromptContext(workingDir)
-	contextFiles, err := agent.DiscoverContextFiles(workingDir, nil)
+	promptContext := prompt.DefaultPromptContext(workingDir)
+	contextFiles, err := prompt.DiscoverContextFiles(workingDir, nil)
 	if err != nil {
 		return nil, err
 	}
 	promptContext.ContextFiles = contextFiles
 
-	systemPrompt, err := agent.BuildSystemPrompt(agent.PromptCoder, promptContext)
+	systemPrompt, err := prompt.BuildSystemPrompt(prompt.PromptCoder, promptContext)
 	if err != nil {
 		return nil, err
 	}

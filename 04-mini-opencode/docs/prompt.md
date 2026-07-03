@@ -2,8 +2,8 @@
 
 `mini-opencode` 的 prompt 分三层：
 
-1. 静态模板：`internal/agent/templates/*.md` 和 `*.md.tpl`
-2. 运行时上下文：由 `internal/agent/prompt.go` 注入
+1. 静态模板：`internal/agent/prompt/templates/*.md` 和 `*.md.tpl`
+2. 运行时上下文：由 `internal/agent/prompt/prompt.go` 注入
 3. 软覆盖：`ContextFiles` 和 `Skills`
 
 ## 静态模板

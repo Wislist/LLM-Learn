@@ -37,6 +37,7 @@
 cmd/mini-opencode     CLI 入口
 internal/app          当前标准库 CLI 壳
 internal/agent        agent 核心工作流
+internal/agent/prompt Prompt 组装与模板
 internal/mcp          MCP stdio client 与工具适配
 docs/mcp.md           MCP 接入说明
 docs/prompt.md        Prompt 组装说明

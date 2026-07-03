@@ -4,7 +4,7 @@
 
 Current scope:
 
-- `bash`: shell command execution prompt template
+- `bash`: shell command execution tool and prompt template
 - `read`: read workspace files
 - `write`: create or overwrite files
 - `edit`: exact string replacement
@@ -14,8 +14,20 @@ Current scope:
 - `job_output`: read background job output
 - `job_kill`: stop background jobs
 
-This package currently defines names, defaults, and tool prompt templates only.
-The concrete tool implementations and runtime/TUI execution interface will be added in later tasks.
+This package currently defines names, defaults, prompt templates, and the first concrete tool implementation.
+The remaining concrete tools and runtime/TUI execution interface will be added in later tasks.
+
+`bash` is now implemented as the first concrete tool. It currently uses
+`os/exec` with `bash -lc`, not `mvdan/sh`. It supports:
+
+- command validation
+- banned command checks
+- working directory validation
+- output truncation
+- foreground execution
+- explicit background execution
+- auto-backgrounding after a configured duration
+- job id/status metadata for future TUI rendering
 
 ## Tool interface
 

@@ -11,11 +11,11 @@ Current scope:
 - `ls`: list workspace directories
 - `glob`: find files by glob
 - `grep`: search text in files
-- `job_output`: read background job output
+- `job_output`: read background job output and status
 - `job_kill`: stop background jobs
 
-This package currently defines names, defaults, instruction files, and the first concrete tool implementation.
-The remaining concrete tools and runtime/TUI execution interface will be added in later tasks.
+This package currently defines names, defaults, instruction files, and concrete shell/job tools.
+The remaining file/search tools and runtime/TUI execution interface will be added in later tasks.
 
 `bash` is now implemented as the first concrete tool. It currently uses
 `os/exec` with `bash -lc`, not `mvdan/sh`. It supports:
@@ -28,6 +28,8 @@ The remaining concrete tools and runtime/TUI execution interface will be added i
 - explicit background execution
 - auto-backgrounding after a configured duration
 - job id/status metadata for future TUI rendering
+
+`job_output` and `job_kill` share the same `JobManager` used by `bash`, allowing callers to inspect or terminate background commands by `job_id`.
 
 ## Tool interface
 

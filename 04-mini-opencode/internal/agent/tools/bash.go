@@ -13,9 +13,9 @@ import (
 )
 
 type BashTool struct {
-	options BashOptions
-	jobs    *JobManager
-	prompt  string
+	options      BashOptions
+	jobs         *JobManager
+	instructions string
 }
 
 type BashOptions struct {
@@ -23,7 +23,7 @@ type BashOptions struct {
 	BannedCommands      []string
 	MaxOutputLength     int
 	AutoBackgroundAfter time.Duration
-	PromptData          PromptData
+	InstructionData     InstructionData
 	Jobs                *JobManager
 }
 
@@ -49,12 +49,12 @@ func NewBashTool(options BashOptions) *BashTool {
 	if options.Jobs == nil {
 		options.Jobs = NewJobManager()
 	}
-	if options.PromptData.MaxOutputLength == 0 {
-		options.PromptData = DefaultPromptData()
+	if options.InstructionData.MaxOutputLength == 0 {
+		options.InstructionData = DefaultInstructionData()
 	}
 
-	prompt, _ := RenderToolPrompt(BashToolName, options.PromptData)
-	return &BashTool{options: options, jobs: options.Jobs, prompt: prompt}
+	instructions, _ := RenderToolInstructions(BashToolName, options.InstructionData)
+	return &BashTool{options: options, jobs: options.Jobs, instructions: instructions}
 }
 
 func (t *BashTool) Jobs() *JobManager { return t.jobs }
@@ -63,7 +63,7 @@ func (t *BashTool) Definition() agent.ToolDefinition {
 	return agent.ToolDefinition{
 		Name:        BashToolName,
 		Description: "Execute shell commands; long-running commands can move to background.",
-		Prompt:      t.prompt,
+		Prompt:      t.instructions,
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

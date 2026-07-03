@@ -11,16 +11,16 @@ import (
 )
 
 //go:embed *.md *.md.tpl
-var promptFiles embed.FS
+var instructionFiles embed.FS
 
-type PromptData struct {
+type InstructionData struct {
 	BannedCommands  string
 	MaxOutputLength int
 	MaxResults      int
 	RgAvailable     bool
 }
 
-var promptFileByTool = map[string]string{
+var instructionFileByTool = map[string]string{
 	BashToolName:      "bash.md.tpl",
 	ReadToolName:      "read.md",
 	WriteToolName:     "write.md",
@@ -32,9 +32,9 @@ var promptFileByTool = map[string]string{
 	JobKillToolName:   "job_kill.md",
 }
 
-func DefaultPromptData() PromptData {
+func DefaultInstructionData() InstructionData {
 	_, rgErr := exec.LookPath("rg")
-	return PromptData{
+	return InstructionData{
 		BannedCommands:  strings.Join(DefaultBannedCommands, ", "),
 		MaxOutputLength: DefaultMaxOutputLength,
 		MaxResults:      200,
@@ -42,15 +42,15 @@ func DefaultPromptData() PromptData {
 	}
 }
 
-func RenderToolPrompt(name string, data PromptData) (string, error) {
-	path, ok := promptFileByTool[name]
+func RenderToolInstructions(name string, data InstructionData) (string, error) {
+	path, ok := instructionFileByTool[name]
 	if !ok {
-		return "", fmt.Errorf("unknown tool prompt: %s", name)
+		return "", fmt.Errorf("unknown tool instructions: %s", name)
 	}
 
-	raw, err := promptFiles.ReadFile(path)
+	raw, err := instructionFiles.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("read tool prompt %s: %w", path, err)
+		return "", fmt.Errorf("read tool instructions %s: %w", path, err)
 	}
 	if !strings.HasSuffix(path, ".tpl") {
 		return strings.TrimSpace(string(raw)), nil
@@ -58,12 +58,12 @@ func RenderToolPrompt(name string, data PromptData) (string, error) {
 
 	tpl, err := template.New(filepath.Base(path)).Parse(string(raw))
 	if err != nil {
-		return "", fmt.Errorf("parse tool prompt %s: %w", path, err)
+		return "", fmt.Errorf("parse tool instructions %s: %w", path, err)
 	}
 
 	var buf bytes.Buffer
 	if err := tpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("execute tool prompt %s: %w", path, err)
+		return "", fmt.Errorf("execute tool instructions %s: %w", path, err)
 	}
 	return strings.TrimSpace(buf.String()), nil
 }

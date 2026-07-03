@@ -4,7 +4,7 @@
 
 Current scope:
 
-- `bash`: shell command execution tool and prompt template
+- `bash`: shell command execution tool and instruction file
 - `read`: read workspace files
 - `write`: create or overwrite files
 - `edit`: exact string replacement
@@ -14,7 +14,7 @@ Current scope:
 - `job_output`: read background job output
 - `job_kill`: stop background jobs
 
-This package currently defines names, defaults, prompt templates, and the first concrete tool implementation.
+This package currently defines names, defaults, instruction files, and the first concrete tool implementation.
 The remaining concrete tools and runtime/TUI execution interface will be added in later tasks.
 
 `bash` is now implemented as the first concrete tool. It currently uses
@@ -40,20 +40,20 @@ Agent tools expose a `ToolDefinition` and run with structured input/output:
 
 The metadata channel is reserved for values such as `cwd`, `exit_code`, `job_id`, truncation flags, and other tool-specific fields.
 
-## Prompt rendering
+## Instruction rendering
 
-Tool descriptions live beside the tool package as `.md` or `.md.tpl` files.
+Tool instructions live beside the tool package as `.md` or `.md.tpl` files.
 
-`RenderToolPrompt` loads the matching file by tool name:
+`RenderToolInstructions` loads the matching file by tool name:
 
 - static `.md` files are returned as trimmed text
-- `.md.tpl` files are rendered with `PromptData`
+- `.md.tpl` files are rendered with `InstructionData`
 
-`DefaultPromptData` currently provides:
+`DefaultInstructionData` currently provides:
 
 - banned command list
 - max output length
 - max result count
 - whether `rg` is available
 
-Concrete tools should put the rendered prompt into `ToolDefinition.Prompt` when they are implemented.
+Concrete tools should put the rendered instructions into `ToolDefinition.Prompt` when they are implemented.

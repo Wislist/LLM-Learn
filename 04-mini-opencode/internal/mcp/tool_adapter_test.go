@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/wislist/mini-opencode/internal/agent"
 )
 
 type fakeClient struct {
@@ -29,11 +31,15 @@ func TestToolAdapterReturnsTextContent(t *testing.T) {
 		},
 	}, ToolDef{Name: "go_doc", Description: "Go docs"})
 
-	got, err := adapter.Run(context.Background(), json.RawMessage(`{}`))
+	got, err := adapter.Run(context.Background(), agent.ToolInput{
+		CallID:    "call-1",
+		Name:      "go_doc",
+		Arguments: json.RawMessage(`{}`),
+	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if got != "hello\nworld" {
+	if got.Content != "hello\nworld" {
 		t.Fatalf("Run() = %q", got)
 	}
 }

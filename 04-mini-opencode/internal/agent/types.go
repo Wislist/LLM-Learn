@@ -25,10 +25,11 @@ type ToolCall struct {
 }
 
 type ToolResult struct {
-	ToolCallID string `json:"tool_call_id"`
-	Name       string `json:"name"`
-	Content    string `json:"content"`
-	Error      string `json:"error,omitempty"`
+	ToolCallID string         `json:"tool_call_id"`
+	Name       string         `json:"name"`
+	Content    string         `json:"content"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+	Error      string         `json:"error,omitempty"`
 }
 
 type AssistantResponse struct {

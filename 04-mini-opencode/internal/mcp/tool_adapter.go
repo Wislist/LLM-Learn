@@ -18,7 +18,7 @@ func NewToolAdapter(client Client, def ToolDef) *ToolAdapter {
 	return &ToolAdapter{client: client, def: def}
 }
 
-func (t *ToolAdapter) Spec() agent.ToolSpec {
+func (t *ToolAdapter) Definition() agent.ToolDefinition {
 	schema := map[string]any{
 		"type":       "object",
 		"properties": map[string]any{},
@@ -27,17 +27,20 @@ func (t *ToolAdapter) Spec() agent.ToolSpec {
 		_ = json.Unmarshal(t.def.InputSchema, &schema)
 	}
 
-	return agent.ToolSpec{
+	return agent.ToolDefinition{
 		Name:        t.def.Name,
 		Description: t.def.Description,
 		InputSchema: schema,
+		Behavior: agent.ToolBehavior{
+			RequiresConfirmation: true,
+		},
 	}
 }
 
-func (t *ToolAdapter) Run(ctx context.Context, args json.RawMessage) (string, error) {
-	result, err := t.client.CallTool(ctx, t.def.Name, args)
+func (t *ToolAdapter) Run(ctx context.Context, input agent.ToolInput) (agent.ToolOutput, error) {
+	result, err := t.client.CallTool(ctx, t.def.Name, input.Arguments)
 	if err != nil {
-		return "", err
+		return agent.ToolOutput{}, err
 	}
 
 	var parts []string
@@ -51,7 +54,7 @@ func (t *ToolAdapter) Run(ctx context.Context, args json.RawMessage) (string, er
 		if output == "" {
 			output = "mcp tool returned an error"
 		}
-		return "", errors.New(output)
+		return agent.ToolOutput{}, errors.New(output)
 	}
-	return output, nil
+	return agent.ToolOutput{Content: output}, nil
 }

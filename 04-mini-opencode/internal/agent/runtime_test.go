@@ -23,8 +23,8 @@ func (p *scriptedProvider) Complete(ctx context.Context, req Request) (Assistant
 
 type uppercaseTool struct{}
 
-func (t uppercaseTool) Spec() ToolSpec {
-	return ToolSpec{
+func (t uppercaseTool) Definition() ToolDefinition {
+	return ToolDefinition{
 		Name:        "uppercase",
 		Description: "Uppercase input text.",
 		InputSchema: map[string]any{
@@ -34,17 +34,18 @@ func (t uppercaseTool) Spec() ToolSpec {
 			},
 			"required": []string{"text"},
 		},
+		Behavior: ToolBehavior{ReadOnly: true},
 	}
 }
 
-func (t uppercaseTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
-	var input struct {
+func (t uppercaseTool) Run(ctx context.Context, toolInput ToolInput) (ToolOutput, error) {
+	var args struct {
 		Text string `json:"text"`
 	}
-	if err := json.Unmarshal(args, &input); err != nil {
-		return "", err
+	if err := json.Unmarshal(toolInput.Arguments, &args); err != nil {
+		return ToolOutput{}, err
 	}
-	return strings.ToUpper(input.Text), nil
+	return ToolOutput{Content: strings.ToUpper(args.Text)}, nil
 }
 
 func TestRuntimeExecutesToolAndContinues(t *testing.T) {

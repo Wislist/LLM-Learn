@@ -26,6 +26,7 @@
 - `internal/agent` runtime
 - provider 抽象
 - tool 抽象与注册表
+- `internal/agent/tools` 常用编码工具模板
 - event stream
 - 基础 turn loop：用户输入 -> provider -> assistant message -> tool call -> tool result -> 继续推理
 - MCP stdio client 与 tool adapter
@@ -38,9 +39,11 @@ cmd/mini-opencode     CLI 入口
 internal/app          当前标准库 CLI 壳
 internal/agent        agent 核心工作流
 internal/agent/prompt Prompt 组装与模板
+internal/agent/tools  常用编码工具模板
 internal/mcp          MCP stdio client 与工具适配
 docs/mcp.md           MCP 接入说明
 docs/prompt.md        Prompt 组装说明
+docs/tools.md         Tools 说明
 ```
 
 ## 运行

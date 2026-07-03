@@ -14,8 +14,8 @@ Current scope:
 - `job_output`: read background job output and status
 - `job_kill`: stop background jobs
 
-This package currently defines names, defaults, instruction files, concrete shell/job tools, and concrete file tools.
-The remaining search tools and runtime/TUI execution interface will be added in later tasks.
+This package currently defines names, defaults, instruction files, concrete shell/job tools, concrete file tools, and concrete search tools.
+The runtime/TUI execution interface will be added in later tasks.
 
 `bash` is now implemented as the first concrete tool. It currently uses
 `os/exec` with `bash -lc`, not `mvdan/sh`. It supports:
@@ -32,6 +32,8 @@ The remaining search tools and runtime/TUI execution interface will be added in 
 `job_output` and `job_kill` share the same `JobManager` used by `bash`, allowing callers to inspect or terminate background commands by `job_id`.
 
 `read`, `write`, `edit`, and `ls` share workspace path validation. Relative paths resolve under `WorkDir`; absolute paths are allowed only when they remain inside `WorkDir`.
+
+`glob` and `grep` are implemented in Go for now. They ignore `.git`, `.gocache`, `node_modules`, `vendor`, `dist`, `build`, and `target`. `glob` currently uses Go `filepath.Match` semantics rather than full shell globstar behavior.
 
 ## Tool interface
 

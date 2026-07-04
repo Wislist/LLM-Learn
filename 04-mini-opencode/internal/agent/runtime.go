@@ -73,6 +73,10 @@ func (r *Runtime) Messages() []Message {
 	return out
 }
 
+func (r *Runtime) Tools() []ToolView {
+	return r.toolService.ListTools()
+}
+
 func (r *Runtime) Run(ctx context.Context, input string, emit func(Event)) error {
 	if emit == nil {
 		emit = func(Event) {}

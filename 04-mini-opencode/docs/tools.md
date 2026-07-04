@@ -2,6 +2,8 @@
 
 `internal/agent/tools` contains the first-pass coding tool set for the agent.
 
+The CLI registers the default coding tool set on startup. Use `/tools` in the CLI to list the registered tools.
+
 Current scope:
 
 - `bash`: shell command execution tool and instruction file

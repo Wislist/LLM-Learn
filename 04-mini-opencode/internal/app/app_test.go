@@ -23,6 +23,24 @@ func TestRunVersionThenQuit(t *testing.T) {
 	}
 }
 
+func TestRunToolsListsRegisteredTools(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	var out bytes.Buffer
+	in := strings.NewReader("/tools\n/quit\n")
+
+	if err := Run(context.Background(), in, &out); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{"bash", "read", "write", "edit", "glob", "grep"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("/tools output missing %s: %q", want, got)
+		}
+	}
+}
+
 func TestRunKeyCommandSavesLocalDeepSeekConfig(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/wislist/mini-opencode/internal/agent"
 	"github.com/wislist/mini-opencode/internal/agent/prompt"
+	"github.com/wislist/mini-opencode/internal/agent/tools"
 	"github.com/wislist/mini-opencode/internal/config"
 )
 
@@ -35,7 +36,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 	}
 
 	fmt.Fprintf(out, "mini-opencode %s\n", version)
-	fmt.Fprintln(out, "commands: /help /version /key /quit")
+	fmt.Fprintln(out, "commands: /help /version /tools /key /quit")
 
 	for {
 		select {
@@ -59,6 +60,10 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 			printHelp(out)
 		case "/version":
 			fmt.Fprintf(out, "mini-opencode %s\n", version)
+		case "/tools":
+			for _, tool := range runtime.Tools() {
+				fmt.Fprintf(out, "%s\t%s\n", tool.Name, tool.Description)
+			}
 		case "/key":
 			if err := configureDeepSeekKey(scanner, out, workingDir, &cfg, ""); err != nil {
 				fmt.Fprintf(out, "error: %v\n", err)
@@ -117,9 +122,17 @@ func newRuntime(workingDir string, cfg config.Config) (*agent.Runtime, error) {
 		return nil, err
 	}
 
+	options := []agent.RuntimeOption{
+		agent.WithSystemPrompt(systemPrompt),
+		agent.WithPermissionPolicy(agent.NewDefaultPermissionPolicy(workingDir)),
+	}
+	for _, tool := range tools.CodingTools(tools.CodingToolOptions{WorkDir: workingDir}) {
+		options = append(options, agent.WithTool(tool))
+	}
+
 	return agent.NewRuntime(
 		provider,
-		agent.WithSystemPrompt(systemPrompt),
+		options...,
 	), nil
 }
 

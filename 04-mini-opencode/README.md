@@ -44,6 +44,7 @@ internal/mcp          MCP stdio client 与工具适配
 docs/mcp.md           MCP 接入说明
 docs/prompt.md        Prompt 组装说明
 docs/tools.md         Tools 说明
+docs/providers.md     Provider 配置说明
 ```
 
 ## 运行

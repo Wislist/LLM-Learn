@@ -1,4 +1,7 @@
 {
+  "provider": {
+    "name": "echo"
+  },
   "mcpServers": {
     "go": {
       "enabled": false,

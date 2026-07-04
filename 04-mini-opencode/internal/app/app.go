@@ -10,6 +10,7 @@ import (
 
 	"github.com/wislist/mini-opencode/internal/agent"
 	"github.com/wislist/mini-opencode/internal/agent/prompt"
+	"github.com/wislist/mini-opencode/internal/config"
 )
 
 const version = "0.1.0"
@@ -66,6 +67,10 @@ func newRuntime() (*agent.Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	cfg, err := config.Load("config.json")
+	if err != nil {
+		return nil, err
+	}
 
 	promptContext := prompt.DefaultPromptContext(workingDir)
 	contextFiles, err := prompt.DiscoverContextFiles(workingDir, nil)
@@ -79,10 +84,31 @@ func newRuntime() (*agent.Runtime, error) {
 		return nil, err
 	}
 
+	provider, err := newProvider(cfg.Provider)
+	if err != nil {
+		return nil, err
+	}
+
 	return agent.NewRuntime(
-		agent.EchoProvider{},
+		provider,
 		agent.WithSystemPrompt(systemPrompt),
 	), nil
+}
+
+func newProvider(cfg config.ProviderConfig) (agent.Provider, error) {
+	switch strings.ToLower(cfg.Name) {
+	case "", "echo":
+		return agent.EchoProvider{}, nil
+	case "deepseek", "openai-compatible", "openai_compatible":
+		apiKey := cfg.ResolvedAPIKey()
+		return agent.NewOpenAICompatibleProvider(agent.OpenAICompatibleConfig{
+			BaseURL: cfg.BaseURL,
+			APIKey:  apiKey,
+			Model:   cfg.Model,
+		})
+	default:
+		return nil, fmt.Errorf("unknown provider: %s", cfg.Name)
+	}
 }
 
 func renderEvent(out io.Writer) func(agent.Event) {

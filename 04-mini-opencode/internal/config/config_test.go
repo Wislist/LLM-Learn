@@ -24,6 +24,17 @@ func TestProviderConfigResolvesAPIKeyFromEnv(t *testing.T) {
 	}
 }
 
+func TestProviderConfigResolvesAPIKeyFromLocalStore(t *testing.T) {
+	dir := t.TempDir()
+	if err := SaveProviderKey(dir, "deepseek", "local-secret"); err != nil {
+		t.Fatalf("SaveProviderKey() error = %v", err)
+	}
+	cfg := ProviderConfig{Name: "deepseek"}
+	if got := cfg.ResolvedAPIKeyFrom(dir); got != "local-secret" {
+		t.Fatalf("ResolvedAPIKeyFrom() = %q", got)
+	}
+}
+
 func TestLoadConfigFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
@@ -36,5 +47,20 @@ func TestLoadConfigFile(t *testing.T) {
 	}
 	if cfg.Provider.Name != "deepseek" || cfg.Provider.Model != "deepseek-chat" {
 		t.Fatalf("config = %#v", cfg.Provider)
+	}
+}
+
+func TestSaveWritesConfigFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	err := Save(path, Config{Provider: DefaultDeepSeekProvider()})
+	if err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Provider.Name != "deepseek" {
+		t.Fatalf("provider = %q", cfg.Provider.Name)
 	}
 }

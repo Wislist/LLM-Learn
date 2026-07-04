@@ -85,3 +85,47 @@ func TestRuntimeExecutesToolAndContinues(t *testing.T) {
 		t.Fatalf("last event = %s, want %s", events[len(events)-1], EventRunFinished)
 	}
 }
+
+func TestRuntimeEmitsToolPermissionRequired(t *testing.T) {
+	provider := &scriptedProvider{
+		responses: []AssistantResponse{
+			{
+				Content: "using tool",
+				ToolCalls: []ToolCall{
+					{
+						ID:        "call-1",
+						Name:      "write_like",
+						Arguments: json.RawMessage(`{"path":"file.txt"}`),
+					},
+				},
+			},
+			{Content: "finished"},
+		},
+	}
+	runtime := NewRuntime(
+		provider,
+		WithTool(permissionTestTool{}),
+		WithPermissionPolicy(NewDefaultPermissionPolicy(t.TempDir())),
+	)
+
+	var events []EventType
+	err := runtime.Run(context.Background(), "start", func(event Event) {
+		events = append(events, event.Type)
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if !hasEvent(events, EventToolPermissionRequired) {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
+func hasEvent(events []EventType, want EventType) bool {
+	for _, event := range events {
+		if event == want {
+			return true
+		}
+	}
+	return false
+}

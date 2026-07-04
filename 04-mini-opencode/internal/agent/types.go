@@ -40,13 +40,16 @@ type AssistantResponse struct {
 type EventType string
 
 const (
-	EventRunStarted        EventType = "run_started"
-	EventTurnStarted       EventType = "turn_started"
-	EventAssistantResponse EventType = "assistant_response"
-	EventToolCallStarted   EventType = "tool_call_started"
-	EventToolCallFinished  EventType = "tool_call_finished"
-	EventRunFinished       EventType = "run_finished"
-	EventRunFailed         EventType = "run_failed"
+	EventRunStarted             EventType = "run_started"
+	EventTurnStarted            EventType = "turn_started"
+	EventAssistantResponse      EventType = "assistant_response"
+	EventToolCallStarted        EventType = "tool_call_started"
+	EventToolCallFinished       EventType = "tool_call_finished"
+	EventToolCallFailed         EventType = "tool_call_failed"
+	EventToolPermissionRequired EventType = "tool_permission_required"
+	EventToolPermissionDenied   EventType = "tool_permission_denied"
+	EventRunFinished            EventType = "run_finished"
+	EventRunFailed              EventType = "run_failed"
 )
 
 type Event struct {

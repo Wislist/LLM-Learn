@@ -77,6 +77,8 @@ Tool execution emits:
 
 The TUI should subscribe to these events rather than calling concrete tools directly.
 
+Runtime tool execution now goes through `ToolService`, so tool events are mapped into runtime events such as `tool_call_started`, `tool_call_finished`, `tool_call_failed`, `tool_permission_required`, and `tool_permission_denied`.
+
 ## Instruction rendering
 
 Tool instructions live beside the tool package as `.md` or `.md.tpl` files.

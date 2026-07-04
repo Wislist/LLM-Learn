@@ -107,6 +107,10 @@ func renderEvent(out io.Writer) func(agent.Event) {
 				return
 			}
 			fmt.Fprintf(out, "tool result: %s\n", event.ToolResult.Content)
+		case agent.EventToolCallFailed, agent.EventToolPermissionRequired, agent.EventToolPermissionDenied:
+			if event.ToolResult != nil && event.ToolResult.Error != "" {
+				fmt.Fprintf(out, "tool error: %s\n", event.ToolResult.Error)
+			}
 		}
 	}
 }

@@ -9,6 +9,7 @@ type Runtime struct {
 	systemPrompt string
 	provider     Provider
 	tools        *ToolRegistry
+	toolService  ToolService
 	messages     []Message
 	maxTurns     int
 }
@@ -16,10 +17,12 @@ type Runtime struct {
 type RuntimeOption func(*Runtime)
 
 func NewRuntime(provider Provider, opts ...RuntimeOption) *Runtime {
+	tools := NewToolRegistry()
 	r := &Runtime{
 		systemPrompt: defaultSystemPrompt,
 		provider:     provider,
-		tools:        NewToolRegistry(),
+		tools:        tools,
+		toolService:  NewRegistryToolService(tools),
 		maxTurns:     8,
 	}
 	for _, opt := range opts {
@@ -47,6 +50,20 @@ func WithMaxTurns(maxTurns int) RuntimeOption {
 func WithTool(tool Tool) RuntimeOption {
 	return func(r *Runtime) {
 		_ = r.tools.Register(tool)
+	}
+}
+
+func WithToolService(service ToolService) RuntimeOption {
+	return func(r *Runtime) {
+		if service != nil {
+			r.toolService = service
+		}
+	}
+}
+
+func WithPermissionPolicy(policy PermissionPolicy) RuntimeOption {
+	return func(r *Runtime) {
+		r.tools.SetPermissionPolicy(policy)
 	}
 }
 
@@ -92,21 +109,53 @@ func (r *Runtime) Run(ctx context.Context, input string, emit func(Event)) error
 
 		for _, call := range resp.ToolCalls {
 			call := call
-			emit(Event{Type: EventToolCallStarted, Turn: turn, ToolCall: &call})
-
-			result := r.tools.Run(ctx, call)
-			r.messages = append(r.messages, Message{
-				Role:       RoleTool,
-				ToolCallID: result.ToolCallID,
-				Content:    resultMessageContent(result),
-			})
-			emit(Event{Type: EventToolCallFinished, Turn: turn, ToolCall: &call, ToolResult: &result})
+			if err := r.runTool(ctx, turn, call, emit); err != nil {
+				emit(Event{Type: EventRunFailed, Turn: turn, ToolCall: &call, Error: err})
+				return err
+			}
 		}
 	}
 
 	err := fmt.Errorf("max turns reached: %d", r.maxTurns)
 	emit(Event{Type: EventRunFailed, Turn: r.maxTurns, Error: err})
 	return err
+}
+
+func (r *Runtime) runTool(ctx context.Context, turn int, call ToolCall, emit func(Event)) error {
+	events, err := r.toolService.RunTool(ctx, ToolRunRequest{Call: call})
+	if err != nil {
+		return err
+	}
+	for toolEvent := range events {
+		switch toolEvent.Type {
+		case ToolEventStarted:
+			emit(Event{Type: EventToolCallStarted, Turn: turn, ToolCall: &call})
+		case ToolEventFinished:
+			r.recordToolResult(toolEvent.Result)
+			emit(Event{Type: EventToolCallFinished, Turn: turn, ToolCall: &call, ToolResult: toolEvent.Result})
+		case ToolEventFailed:
+			r.recordToolResult(toolEvent.Result)
+			emit(Event{Type: EventToolCallFailed, Turn: turn, ToolCall: &call, ToolResult: toolEvent.Result, Error: toolEvent.Error})
+		case ToolEventPermissionRequired:
+			r.recordToolResult(toolEvent.Result)
+			emit(Event{Type: EventToolPermissionRequired, Turn: turn, ToolCall: &call, ToolResult: toolEvent.Result, Error: toolEvent.Error})
+		case ToolEventPermissionDenied:
+			r.recordToolResult(toolEvent.Result)
+			emit(Event{Type: EventToolPermissionDenied, Turn: turn, ToolCall: &call, ToolResult: toolEvent.Result, Error: toolEvent.Error})
+		}
+	}
+	return nil
+}
+
+func (r *Runtime) recordToolResult(result *ToolResult) {
+	if result == nil {
+		return
+	}
+	r.messages = append(r.messages, Message{
+		Role:       RoleTool,
+		ToolCallID: result.ToolCallID,
+		Content:    resultMessageContent(*result),
+	})
 }
 
 func resultMessageContent(result ToolResult) string {

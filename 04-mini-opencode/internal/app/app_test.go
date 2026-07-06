@@ -1,12 +1,15 @@
 package app
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/wislist/mini-opencode/internal/agent"
 )
 
 func TestRunVersionThenQuit(t *testing.T) {
@@ -64,5 +67,15 @@ func TestRunKeyCommandSavesLocalDeepSeekConfig(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "test-key") {
 		t.Fatalf("secret store missing key: %q", data)
+	}
+}
+
+func TestConfirmToolAcceptsChineseAllow(t *testing.T) {
+	scanner := bufio.NewScanner(strings.NewReader("允许\n"))
+	var out bytes.Buffer
+	confirm := confirmTool(scanner, &out)
+
+	if !confirm(context.Background(), agent.ToolCall{Name: "bash"}, agent.ToolResult{}) {
+		t.Fatal("expected confirmation to be accepted")
 	}
 }

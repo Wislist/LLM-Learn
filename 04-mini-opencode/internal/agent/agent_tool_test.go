@@ -79,6 +79,35 @@ func TestRegistryToolServiceEmitsPermissionRequired(t *testing.T) {
 	}
 }
 
+func TestRegistryToolServiceRunsApprovedTool(t *testing.T) {
+	registry := NewToolRegistry()
+	registry.SetPermissionPolicy(NewDefaultPermissionPolicy(t.TempDir()))
+	if err := registry.Register(permissionTestTool{}); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewRegistryToolService(registry)
+	events, err := service.RunTool(context.Background(), ToolRunRequest{
+		Approved: true,
+		Call: ToolCall{
+			ID:        "call-1",
+			Name:      "write_like",
+			Arguments: json.RawMessage(`{"path":"file.txt"}`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("RunTool() error = %v", err)
+	}
+
+	got := collectToolEvents(events)
+	if len(got) != 2 {
+		t.Fatalf("event count = %d, want 2", len(got))
+	}
+	if got[1].Type != ToolEventFinished || got[1].Result.Content != "ran" {
+		t.Fatalf("event = %#v", got[1])
+	}
+}
+
 type serviceTestTool struct{}
 
 func (serviceTestTool) Definition() ToolDefinition {

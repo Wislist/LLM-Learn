@@ -77,6 +77,14 @@ func (r *ToolRegistry) Specs() []ToolSpec {
 }
 
 func (r *ToolRegistry) Run(ctx context.Context, call ToolCall) ToolResult {
+	return r.run(ctx, call, false)
+}
+
+func (r *ToolRegistry) RunApproved(ctx context.Context, call ToolCall) ToolResult {
+	return r.run(ctx, call, true)
+}
+
+func (r *ToolRegistry) run(ctx context.Context, call ToolCall, approved bool) ToolResult {
 	tool, ok := r.tools[call.Name]
 	if !ok {
 		return ToolResult{
@@ -100,6 +108,9 @@ func (r *ToolRegistry) Run(ctx context.Context, call ToolCall) ToolResult {
 				},
 			}
 		case PermissionConfirm:
+			if approved {
+				break
+			}
 			return ToolResult{
 				ToolCallID: call.ID,
 				Name:       call.Name,

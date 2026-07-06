@@ -121,6 +121,39 @@ func TestRuntimeEmitsToolPermissionRequired(t *testing.T) {
 	}
 }
 
+func TestRuntimeExecutesToolAfterPermissionConfirmation(t *testing.T) {
+	provider := &scriptedProvider{
+		responses: []AssistantResponse{
+			{
+				Content: "using tool",
+				ToolCalls: []ToolCall{
+					{
+						ID:        "call-1",
+						Name:      "write_like",
+						Arguments: json.RawMessage(`{"path":"file.txt"}`),
+					},
+				},
+			},
+			{Content: "finished"},
+		},
+	}
+	runtime := NewRuntime(
+		provider,
+		WithTool(permissionTestTool{}),
+		WithPermissionPolicy(NewDefaultPermissionPolicy(t.TempDir())),
+		WithPermissionConfirmer(func(ctx context.Context, call ToolCall, result ToolResult) bool { return true }),
+	)
+
+	err := runtime.Run(context.Background(), "start", func(event Event) {})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	messages := runtime.Messages()
+	if len(messages) < 3 || messages[2].Content != "ran" {
+		t.Fatalf("messages = %#v", messages)
+	}
+}
+
 func hasEvent(events []EventType, want EventType) bool {
 	for _, event := range events {
 		if event == want {

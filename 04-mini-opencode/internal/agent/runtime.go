@@ -10,9 +10,12 @@ type Runtime struct {
 	provider     Provider
 	tools        *ToolRegistry
 	toolService  ToolService
+	confirmer    PermissionConfirmer
 	messages     []Message
 	maxTurns     int
 }
+
+type PermissionConfirmer func(ctx context.Context, call ToolCall, result ToolResult) bool
 
 type RuntimeOption func(*Runtime)
 
@@ -64,6 +67,12 @@ func WithToolService(service ToolService) RuntimeOption {
 func WithPermissionPolicy(policy PermissionPolicy) RuntimeOption {
 	return func(r *Runtime) {
 		r.tools.SetPermissionPolicy(policy)
+	}
+}
+
+func WithPermissionConfirmer(confirmer PermissionConfirmer) RuntimeOption {
+	return func(r *Runtime) {
+		r.confirmer = confirmer
 	}
 }
 
@@ -141,11 +150,41 @@ func (r *Runtime) runTool(ctx context.Context, turn int, call ToolCall, emit fun
 			r.recordToolResult(toolEvent.Result)
 			emit(Event{Type: EventToolCallFailed, Turn: turn, ToolCall: &call, ToolResult: toolEvent.Result, Error: toolEvent.Error})
 		case ToolEventPermissionRequired:
-			r.recordToolResult(toolEvent.Result)
 			emit(Event{Type: EventToolPermissionRequired, Turn: turn, ToolCall: &call, ToolResult: toolEvent.Result, Error: toolEvent.Error})
+			if toolEvent.Result == nil || r.confirmer == nil || !r.confirmer(ctx, call, *toolEvent.Result) {
+				r.recordToolResult(toolEvent.Result)
+				return nil
+			}
+			return r.runApprovedTool(ctx, turn, call, emit)
 		case ToolEventPermissionDenied:
 			r.recordToolResult(toolEvent.Result)
 			emit(Event{Type: EventToolPermissionDenied, Turn: turn, ToolCall: &call, ToolResult: toolEvent.Result, Error: toolEvent.Error})
+		}
+	}
+	return nil
+}
+
+func (r *Runtime) runApprovedTool(ctx context.Context, turn int, call ToolCall, emit func(Event)) error {
+	events, err := r.toolService.RunTool(ctx, ToolRunRequest{Call: call, Approved: true})
+	if err != nil {
+		return err
+	}
+	for toolEvent := range events {
+		switch toolEvent.Type {
+		case ToolEventStarted:
+			emit(Event{Type: EventToolCallStarted, Turn: turn, ToolCall: &call})
+		case ToolEventFinished:
+			r.recordToolResult(toolEvent.Result)
+			emit(Event{Type: EventToolCallFinished, Turn: turn, ToolCall: &call, ToolResult: toolEvent.Result})
+		case ToolEventFailed:
+			r.recordToolResult(toolEvent.Result)
+			emit(Event{Type: EventToolCallFailed, Turn: turn, ToolCall: &call, ToolResult: toolEvent.Result, Error: toolEvent.Error})
+		case ToolEventPermissionDenied:
+			r.recordToolResult(toolEvent.Result)
+			emit(Event{Type: EventToolPermissionDenied, Turn: turn, ToolCall: &call, ToolResult: toolEvent.Result, Error: toolEvent.Error})
+		case ToolEventPermissionRequired:
+			r.recordToolResult(toolEvent.Result)
+			emit(Event{Type: EventToolPermissionRequired, Turn: turn, ToolCall: &call, ToolResult: toolEvent.Result, Error: toolEvent.Error})
 		}
 	}
 	return nil

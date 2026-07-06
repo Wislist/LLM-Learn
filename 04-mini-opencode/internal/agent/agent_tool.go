@@ -15,7 +15,8 @@ type ToolView struct {
 }
 
 type ToolRunRequest struct {
-	Call ToolCall `json:"call"`
+	Call     ToolCall `json:"call"`
+	Approved bool     `json:"approved"`
 }
 
 type ToolEventType string
@@ -66,7 +67,12 @@ func (s *RegistryToolService) RunTool(ctx context.Context, req ToolRunRequest) (
 		defer close(ch)
 		ch <- ToolEvent{Type: ToolEventStarted, Call: req.Call}
 
-		result := s.registry.Run(ctx, req.Call)
+		var result ToolResult
+		if req.Approved {
+			result = s.registry.RunApproved(ctx, req.Call)
+		} else {
+			result = s.registry.Run(ctx, req.Call)
+		}
 		eventType := classifyToolResult(result)
 		event := ToolEvent{Type: eventType, Call: req.Call, Result: &result}
 		if result.Error != "" {

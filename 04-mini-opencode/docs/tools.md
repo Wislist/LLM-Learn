@@ -58,7 +58,7 @@ The default policy currently checks:
 - `path` and `working_dir` arguments escaping the configured workspace
 - tool behavior flags such as `dangerous` and `requires_confirmation`
 
-Denied calls return a `ToolResult` with `permission=deny` metadata. Calls that require confirmation return `permission=confirm` metadata; the interactive confirmation UI will be handled by the future TUI layer.
+Denied calls return a `ToolResult` with `permission=deny` metadata. Calls that require confirmation return `permission=confirm` metadata. The current CLI asks `allow tool <name>? [y/N]:`; approving reruns the same tool call in approved mode. The future TUI can replace this prompt with a modal using the same event flow.
 
 ## Tool service
 

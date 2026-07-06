@@ -30,7 +30,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 	if err := ensureProviderKey(scanner, out, workingDir, &cfg); err != nil {
 		return err
 	}
-	runtime, err := newRuntime(workingDir, cfg)
+	runtime, err := newRuntime(workingDir, cfg, scanner, out)
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 				fmt.Fprintf(out, "error: %v\n", err)
 				continue
 			}
-			runtime, err = newRuntime(workingDir, cfg)
+			runtime, err = newRuntime(workingDir, cfg, scanner, out)
 			if err != nil {
 				fmt.Fprintf(out, "error: %v\n", err)
 				continue
@@ -84,7 +84,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 					fmt.Fprintf(out, "error: %v\n", err)
 					continue
 				}
-				runtime, err = newRuntime(workingDir, cfg)
+				runtime, err = newRuntime(workingDir, cfg, scanner, out)
 				if err != nil {
 					fmt.Fprintf(out, "error: %v\n", err)
 					continue
@@ -104,7 +104,7 @@ func printHelp(out io.Writer) {
 	fmt.Fprintln(out, "commands: /key <deepseek-api-key> saves a local key and switches provider to DeepSeek.")
 }
 
-func newRuntime(workingDir string, cfg config.Config) (*agent.Runtime, error) {
+func newRuntime(workingDir string, cfg config.Config, scanner *bufio.Scanner, out io.Writer) (*agent.Runtime, error) {
 	promptContext := prompt.DefaultPromptContext(workingDir)
 	contextFiles, err := prompt.DiscoverContextFiles(workingDir, nil)
 	if err != nil {
@@ -125,6 +125,7 @@ func newRuntime(workingDir string, cfg config.Config) (*agent.Runtime, error) {
 	options := []agent.RuntimeOption{
 		agent.WithSystemPrompt(systemPrompt),
 		agent.WithPermissionPolicy(agent.NewDefaultPermissionPolicy(workingDir)),
+		agent.WithPermissionConfirmer(confirmTool(scanner, out)),
 	}
 	for _, tool := range tools.CodingTools(tools.CodingToolOptions{WorkDir: workingDir}) {
 		options = append(options, agent.WithTool(tool))
@@ -134,6 +135,17 @@ func newRuntime(workingDir string, cfg config.Config) (*agent.Runtime, error) {
 		provider,
 		options...,
 	), nil
+}
+
+func confirmTool(scanner *bufio.Scanner, out io.Writer) agent.PermissionConfirmer {
+	return func(ctx context.Context, call agent.ToolCall, result agent.ToolResult) bool {
+		fmt.Fprintf(out, "allow tool %s? [y/N]: ", call.Name)
+		if !scanner.Scan() {
+			return false
+		}
+		answer := strings.ToLower(strings.TrimSpace(scanner.Text()))
+		return answer == "y" || answer == "yes" || answer == "允许"
+	}
 }
 
 func newProvider(cfg config.ProviderConfig, workingDir string) (agent.Provider, error) {

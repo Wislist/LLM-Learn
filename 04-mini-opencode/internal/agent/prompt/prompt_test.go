@@ -64,7 +64,7 @@ func TestDiscoverContextFilesSupportsGlob(t *testing.T) {
 }
 
 func TestCoderTemplateDoesNotContainDynamicBlocks(t *testing.T) {
-	data, err := promptTemplates.ReadFile("templates/coder.md.tpl")
+	data, err := promptTemplates.ReadFile("coder.md.tpl")
 	if err != nil {
 		t.Fatal(err)
 	}

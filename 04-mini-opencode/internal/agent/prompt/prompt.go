@@ -2,7 +2,6 @@ package prompt
 
 import (
 	"bytes"
-	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,10 +9,11 @@ import (
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/wislist/mini-opencode/internal/agent/templates"
 )
 
-//go:embed templates/*
-var promptTemplates embed.FS
+var promptTemplates = templates.FS
 
 type PromptKind string
 
@@ -28,12 +28,12 @@ const (
 )
 
 var promptTemplateFiles = map[PromptKind]string{
-	PromptCoder:        "templates/coder.md.tpl",
-	PromptTask:         "templates/task.md.tpl",
-	PromptInitialize:   "templates/initialize.md.tpl",
-	PromptAgenticFetch: "templates/agentic_fetch_prompt.md.tpl",
-	PromptSummary:      "templates/summary.md",
-	PromptTitle:        "templates/title.md",
+	PromptCoder:        "coder.md.tpl",
+	PromptTask:         "task.md.tpl",
+	PromptInitialize:   "initialize.md.tpl",
+	PromptAgenticFetch: "agentic_fetch_prompt.md.tpl",
+	PromptSummary:      "summary.md",
+	PromptTitle:        "title.md",
 }
 
 var DefaultContextFileCandidates = []string{

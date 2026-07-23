@@ -64,6 +64,12 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, seq);
+CREATE TABLE IF NOT EXISTS session_summaries (
+  session_id         TEXT PRIMARY KEY REFERENCES sessions(id),
+  summary            TEXT NOT NULL,
+  covered_message_id INTEGER NOT NULL DEFAULT 0,
+  updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 `)
 	if err != nil {
 		return err
@@ -94,23 +100,28 @@ func (s *SessionStore) RenameSession(id, title string) error {
 	return err
 }
 
-func (s *SessionStore) AppendMessage(sessionID string, seq int, msg llmg.Message) error {
+func (s *SessionStore) AppendMessage(sessionID string, msg llmg.Message) (int64, error) {
 	payload, err := json.Marshal(msg)
 	if err != nil {
-		return fmt.Errorf("marshal message: %w", err)
+		return 0, fmt.Errorf("marshal message: %w", err)
 	}
-	_, err = s.db.Exec(
-		`INSERT INTO messages (session_id, seq, payload) VALUES (?, ?, ?)`,
-		sessionID, seq, string(payload),
+	result, err := s.db.Exec(
+		`INSERT INTO messages (session_id, seq, payload)
+		 VALUES (?, COALESCE((SELECT MAX(seq) + 1 FROM messages WHERE session_id=?), 1), ?)`,
+		sessionID, sessionID, string(payload),
 	)
 	if err != nil {
-		return fmt.Errorf("append message: %w", err)
+		return 0, fmt.Errorf("append message: %w", err)
+	}
+	messageID, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("message id: %w", err)
 	}
 	_, err = s.db.Exec(
 		`UPDATE sessions SET updated_at=? WHERE id=?`,
 		time.Now().Format(time.RFC3339), sessionID,
 	)
-	return err
+	return messageID, err
 }
 
 // AddUsage 累加 session 的 token 用量。
@@ -123,28 +134,59 @@ func (s *SessionStore) AddUsage(sessionID string, prompt, completion int) error 
 }
 
 func (s *SessionStore) LoadMessages(sessionID string) ([]llmg.Message, error) {
-	rows, err := s.db.Query(
-		`SELECT payload FROM messages WHERE session_id=? ORDER BY seq ASC`,
+	_, messages, _, err := s.LoadContext(sessionID)
+	return messages, err
+}
+
+func (s *SessionStore) LoadContext(sessionID string) (string, []llmg.Message, []int64, error) {
+	var summary string
+	var coveredID int64
+	err := s.db.QueryRow(
+		`SELECT summary, covered_message_id FROM session_summaries WHERE session_id=?`,
 		sessionID,
+	).Scan(&summary, &coveredID)
+	if err != nil && err != sql.ErrNoRows {
+		return "", nil, nil, fmt.Errorf("load summary: %w", err)
+	}
+
+	rows, err := s.db.Query(
+		`SELECT id, payload FROM messages WHERE session_id=? AND id>? ORDER BY id ASC`,
+		sessionID, coveredID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("load messages: %w", err)
+		return "", nil, nil, fmt.Errorf("load messages: %w", err)
 	}
 	defer rows.Close()
 
 	var out []llmg.Message
+	var ids []int64
 	for rows.Next() {
+		var id int64
 		var raw string
-		if err := rows.Scan(&raw); err != nil {
-			return nil, err
+		if err := rows.Scan(&id, &raw); err != nil {
+			return "", nil, nil, err
 		}
 		var msg llmg.Message
 		if err := json.Unmarshal([]byte(raw), &msg); err != nil {
-			return nil, fmt.Errorf("unmarshal message: %w", err)
+			return "", nil, nil, fmt.Errorf("unmarshal message: %w", err)
 		}
+		ids = append(ids, id)
 		out = append(out, msg)
 	}
-	return out, rows.Err()
+	return summary, out, ids, rows.Err()
+}
+
+func (s *SessionStore) SaveSummary(sessionID, summary string, coveredMessageID int64) error {
+	_, err := s.db.Exec(
+		`INSERT INTO session_summaries (session_id, summary, covered_message_id, updated_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(session_id) DO UPDATE SET
+		 summary=excluded.summary,
+		 covered_message_id=excluded.covered_message_id,
+		 updated_at=excluded.updated_at`,
+		sessionID, summary, coveredMessageID, time.Now().Format(time.RFC3339),
+	)
+	return err
 }
 
 func (s *SessionStore) LatestSession() (*Session, error) {

@@ -4,15 +4,33 @@
 api_key: "sk-your-deepseek-api-key-here"
 model: "deepseek-chat"
 max_turns: 10
-max_hist: 40
+max_hist: 200            # 防止异常增长的消息数硬上限
+context_window: 65536    # 64K 上下文窗口
+output_reserve: 8192     # 为模型回答预留 8K
+memory_reserve: 4096     # 为长期记忆召回预留 4K
+compression_ratio: 0.8  # 对话预算达到 80% 时压缩
 db_path: ".mini-opencode/sessions.db"
 auto_approve: false   # true 则跳过破坏性操作的 [y/n] 确认
+skills_dir: ".mini-opencode/skills"  # 本地技能目录
 
 # MCP server（stdio transport）。启动子进程，JSON-RPC over stdio 通信。
+# 支持 tools / resources / prompts 三种能力。
 # mcp:
 #   filesystem:
-#     command: node
-#     args: [/path/to/mcp-server-filesystem.js, /allowed/dir]
+#     command: npx
+#     args: [-y, @modelcontextprotocol/server-filesystem, /allowed/dir]
 #   github:
 #     command: npx
 #     args: [-y, @modelcontextprotocol/server-github]
+#
+# 使用 /mcp 查看 server 状态、工具、资源和 prompt
+# 使用 /prompt <name> [key=val] 获取 MCP prompt 模板
+
+# 技能目录结构：
+# .mini-opencode/skills/
+#   my-skill/
+#     SKILL.md          # 技能指令文件
+#   another-skill/
+#     SKILL.md
+#
+# 启动时自动扫描，LLM 可通过 list_skills / read_skill 工具使用

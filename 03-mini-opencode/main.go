@@ -20,8 +20,8 @@ func main() {
 	client := llmg.New(llmg.WithDeepSeek(config.APIKey))
 	agent := NewAgent(client, config, workDir)
 
-	fmt.Printf("mini-opencode v0.3  (模型: %s)\n", config.Model)
-	fmt.Println("命令: /help  /clear  /tools  /sessions  /new  /resume <id>  /session  /yes  exit")
+	fmt.Printf("mini-opencode v0.4  (模型: %s)\n", config.Model)
+	fmt.Println("命令: /help  /clear  /tools  /skills  /mcp  /prompt <name>  /sessions  /new  /resume <id>  /session  /yes  exit")
 	fmt.Println()
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -39,7 +39,7 @@ func main() {
 		case input == "exit" || input == "quit":
 			return
 		case input == "/help":
-			fmt.Println("\n命令: /help  /clear  /tools  /sessions  /new  /resume <id>  /session  /yes  exit")
+			fmt.Println("\n命令: /help  /clear  /tools  /skills  /mcp  /prompt <name>  /sessions  /new  /resume <id>  /session  /yes  exit")
 			fmt.Println()
 			continue
 		case input == "/clear":
@@ -48,6 +48,25 @@ func main() {
 		case input == "/tools":
 			fmt.Println("\n可用工具:")
 			fmt.Println(agent.tools.ToolPrompt())
+			continue
+		case input == "/skills":
+			fmt.Println()
+			agent.ListSkills()
+			fmt.Println()
+			continue
+		case input == "/mcp":
+			fmt.Println()
+			agent.ListMCP()
+			fmt.Println()
+			continue
+		case strings.HasPrefix(input, "/prompt "):
+			name := strings.TrimSpace(strings.TrimPrefix(input, "/prompt "))
+			fmt.Println()
+			agent.GetPrompt(name)
+			fmt.Println()
+			continue
+		case input == "/prompt":
+			fmt.Println("用法: /prompt <name> [args]（用 /mcp 查看可用 prompt）")
 			continue
 		case input == "/sessions":
 			fmt.Println()

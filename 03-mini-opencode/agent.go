@@ -28,6 +28,7 @@ const defaultSystemPrompt = `你是一个强大的 CLI 编程 Agent，能在终�
 11. 大文件只读片段：用 read_file 的 offset/limit 只读需要的部分，不要把整个大文件塞进上下文。
 12. 搜索优先：找文件用 glob，搜内容用 grep，不要用 bash 的 find/grep 替代。
 13. 避免死循环：如果同一操作连续失败，换方法，不要重复硬试。
+14. 记忆管理：用户表达偏好、项目约定、技术决策时用 remember 工具保存。不再需要的记忆用 forget 删除。
 </critical_rules>
 
 <communication_style>
@@ -55,9 +56,12 @@ type Agent struct {
 	config      Config
 	output      io.Writer
 	store       *SessionStore
+	memory      *MemoryStore
+	skills      *SkillStore
+	mcp         *MCPManager
 	workDir     string
 	hook        *CLIPermissionHook
-	toolHistory []string // tool call 签名序列，用于 loop detection
+	toolHistory []string
 }
 
 func NewAgent(client *llmg.Client, config Config, workDir string) *Agent {
@@ -71,13 +75,34 @@ func NewAgent(client *llmg.Client, config Config, workDir string) *Agent {
 	tools.Register(newTodosTool())
 	tools.Register(&bashTool{workDir: workDir})
 
+	// 加载本地技能。
+	skillStore := NewSkillStore(config.SkillsDir)
+	if len(skillStore.All()) > 0 {
+		tools.Register(&listSkillsTool{store: skillStore})
+		tools.Register(&readSkillTool{store: skillStore})
+	}
+
+	// 加载 MCP server。
+	mcpMgr := NewMCPManager()
 	if len(config.MCP) > 0 {
-		LoadMCPFromConfig(tools, config.MCP)
+		mcpMgr.LoadFromConfig(tools, config.MCP)
 	}
 
 	store, err := OpenSessionStore(config.DBPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[warn] session store 不可用: %v\n", err)
+	}
+
+	var memory *MemoryStore
+	if store != nil {
+		if err := store.InitMemoryTables(); err != nil {
+			fmt.Fprintf(os.Stderr, "[warn] memory tables 初始化失败: %v\n", err)
+		} else {
+			memory = store.MemoryStore()
+			tools.Register(&rememberTool{store: memory})
+			tools.Register(&forgetTool{store: memory})
+			tools.Register(&listMemoryTool{store: memory})
+		}
 	}
 
 	a := &Agent{
@@ -86,11 +111,16 @@ func NewAgent(client *llmg.Client, config Config, workDir string) *Agent {
 		config:  config,
 		output:  os.Stdout,
 		store:   store,
+		memory:  memory,
+		skills:  skillStore,
+		mcp:     mcpMgr,
 		workDir: workDir,
 		hook:    NewCLIPermissionHook(config.AutoApprove),
 	}
 
+	// 构建 system prompt：基础 prompt + 工具列表 + 技能列表。
 	prompt := defaultSystemPrompt + "\n\n可用工具:\n" + tools.ToolPrompt()
+	prompt += skillStore.Prompt()
 	a.history = NewHistory(prompt, config.MaxHist)
 
 	if store != nil {
@@ -102,7 +132,7 @@ func NewAgent(client *llmg.Client, config Config, workDir string) *Agent {
 func (a *Agent) resumeOrNew() {
 	if latest, err := a.store.LatestSession(); err == nil && latest != nil {
 		a.history.BindSession(latest.ID, a.store)
-		if err := a.history.LoadSession(latest.ID); err != nil {
+		if err := a.history.LoadContext(); err != nil {
 			fmt.Fprintf(a.output, "[warn] 恢复会话失败: %v\n", err)
 			a.newSession()
 			return
@@ -136,7 +166,8 @@ func (a *Agent) ResumeSession(id string) error {
 	if sess == nil {
 		return fmt.Errorf("会话 %s 不存在", id)
 	}
-	if err := a.history.LoadSession(id); err != nil {
+	a.history.BindSession(id, a.store)
+	if err := a.history.LoadContext(); err != nil {
 		return err
 	}
 	fmt.Fprintf(a.output, "[已恢复会话 %s] %s\n", sess.ID, sess.Title)
@@ -187,13 +218,50 @@ func (a *Agent) CurrentSession() {
 		sess.ID, sess.Title, sess.Model, sess.UpdatedAt, sess.PromptTokens, sess.CompletionTokens)
 }
 
+// tokenBudget 计算对话历史的可用 token 预算。
+// 预算 = 上下文窗口 - system prompt - 工具 schema - 输出预留 - 记忆预留
+func (a *Agent) tokenBudget() int {
+	systemTokens := estimateTextTokens(a.history.systemPrompt)
+	toolTokens := estimateToolsTokens(a.tools.ToLLMTools())
+	budget := a.config.ContextWindow - systemTokens - toolTokens - a.config.OutputReserve - a.config.MemoryReserve
+	if budget < 4096 {
+		budget = 4096
+	}
+	return int(float64(budget) * a.config.CompressionRatio)
+}
+
+// recallMemories 检索与用户输入相关的长期记忆，返回注入用的文本。
+func (a *Agent) recallMemories(input string) string {
+	if a.memory == nil || strings.TrimSpace(input) == "" {
+		return ""
+	}
+	memories, err := a.memory.Search(input, 5)
+	if err != nil || len(memories) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\n<relevant_memories>\n")
+	for _, m := range memories {
+		fmt.Fprintf(&sb, "- [%s] %s\n", m.Kind, m.Content)
+	}
+	sb.WriteString("</relevant_memories>")
+	return sb.String()
+}
+
 func (a *Agent) Run(input string) {
 	if a.history == nil {
 		prompt := defaultSystemPrompt + "\n\n可用工具:\n" + a.tools.ToolPrompt()
 		a.history = NewHistory(prompt, a.config.MaxHist)
 	}
 
-	a.history.Add(llmg.Message{Role: llmg.RoleUser, Content: input})
+	// 召回长期记忆，注入到本轮 user 消息前。
+	memoryContext := a.recallMemories(input)
+	userContent := input
+	if memoryContext != "" {
+		userContent = memoryContext + "\n\n" + input
+	}
+
+	a.history.Add(llmg.Message{Role: llmg.RoleUser, Content: userContent})
 
 	if a.store != nil && a.history.SessionID() != "" {
 		if count, err := a.store.MessageCount(a.history.SessionID()); err == nil && count <= 1 {
@@ -205,9 +273,10 @@ func (a *Agent) Run(input string) {
 		}
 	}
 
+	budget := a.tokenBudget()
+
 	for turn := 0; turn < a.config.MaxTurns; turn++ {
-		// auto-summarize：历史过长时压缩旧消息
-		if a.history.NeedsSummary() {
+		if a.history.NeedsSummary(budget) {
 			if err := a.summarizeHistory(); err != nil {
 				fmt.Fprintf(os.Stderr, "\n[warn] 摘要失败: %v\n", err)
 			}
@@ -257,7 +326,7 @@ func (a *Agent) Run(input string) {
 			ToolCalls: pendingToolCalls,
 		})
 
-		// loop detection：把本轮 tool calls 签名追加进历史，检测死循环
+		// loop detection
 		for _, tc := range pendingToolCalls {
 			a.toolHistory = append(a.toolHistory, toolSignature(tc))
 		}
@@ -277,7 +346,6 @@ func (a *Agent) Run(input string) {
 			}
 			fmt.Fprintf(a.output, "  [%s] %s(%s)\n", tc.Function.Name, tc.Function.Name, short)
 
-			// 权限钩子：拦截破坏性 / 越权操作。
 			decision, reason := a.hook.Check(tc.Function.Name, tc.Function.Arguments)
 			var result string
 			var err error
@@ -309,6 +377,8 @@ func (a *Agent) Run(input string) {
 
 const summaryPrompt = `你正在压缩一段对话历史，供后续继续工作使用。这份摘要是唯一的上下文，请务必详尽。
 
+如果已有旧摘要，请将其与新对话合并，不要丢弃旧信息。
+
 要求包含：
 ## 当前状态
 - 正在做什么任务（用户原始请求）
@@ -327,6 +397,7 @@ const summaryPrompt = `你正在压缩一段对话历史，供后续继续工作
 `
 
 // summarizeHistory 把旧的头部消息段调 LLM 压缩成一条摘要消息。
+// 如果已有旧摘要，合并后生成新摘要。结果持久化到 session_summaries。
 func (a *Agent) summarizeHistory() error {
 	old := a.history.Summarizable()
 	if len(old) < 2 {
@@ -334,11 +405,18 @@ func (a *Agent) summarizeHistory() error {
 	}
 	fmt.Fprintln(a.output, "  [压缩历史中…]")
 
+	// 合并旧摘要
+	priorSummary := a.history.persistedSummary
+	userContent := messagesToText(old)
+	if priorSummary != "" {
+		userContent = "## 旧摘要\n" + priorSummary + "\n\n## 新对话\n" + userContent
+	}
+
 	req := &llmg.ChatRequest{
 		Model: a.config.Model,
 		Messages: []llmg.Message{
 			{Role: llmg.RoleSystem, Content: summaryPrompt},
-			{Role: llmg.RoleUser, Content: messagesToText(old)},
+			{Role: llmg.RoleUser, Content: userContent},
 		},
 	}
 	resp, err := a.client.Chat(context.Background(), req)
@@ -349,7 +427,15 @@ func (a *Agent) summarizeHistory() error {
 		return fmt.Errorf("摘要响应为空")
 	}
 	summary := resp.Choices[0].Message.Content
-	a.history.ReplaceWithSummary(summary, len(old))
+	coveredID := a.history.ReplaceWithSummary(summary, len(old))
+
+	// 持久化摘要检查点
+	if a.store != nil && a.history.SessionID() != "" && coveredID > 0 {
+		if err := a.store.SaveSummary(a.history.SessionID(), summary, coveredID); err != nil {
+			fmt.Fprintf(os.Stderr, "  [warn] 保存摘要失败: %v\n", err)
+		}
+	}
+
 	fmt.Fprintf(a.output, "  [历史已压缩: %d 条消息 → 1 条摘要]\n", len(old))
 	return nil
 }
@@ -357,7 +443,7 @@ func (a *Agent) summarizeHistory() error {
 // messagesToText 把消息序列转成可读文本，喂给摘要 LLM。
 func messagesToText(msgs []llmg.Message) string {
 	var sb strings.Builder
-	for i, m := range msgs {
+	for _, m := range msgs {
 		switch m.Role {
 		case llmg.RoleUser:
 			fmt.Fprintf(&sb, "[用户] %s\n", m.Content)
@@ -371,7 +457,6 @@ func messagesToText(msgs []llmg.Message) string {
 		case llmg.RoleTool:
 			fmt.Fprintf(&sb, "[工具结果] %s\n", m.Content)
 		}
-		_ = i
 	}
 	return sb.String()
 }
@@ -389,4 +474,78 @@ func (a *Agent) ToggleAutoApprove() {
 		state = "开启"
 	}
 	fmt.Fprintf(a.output, "[自动批准已%s]  破坏性操作将%s确认\n", state, map[bool]string{true: "不再", false: "需要"}[v])
+}
+
+// ---------- skills & MCP 命令 ----------
+
+func (a *Agent) ListSkills() {
+	if a.skills == nil || len(a.skills.All()) == 0 {
+		fmt.Fprintln(a.output, "[无可用技能] 在 .mini-opencode/skills/<name>/SKILL.md 放置技能文件")
+		return
+	}
+	fmt.Fprintln(a.output, "可用技能:")
+	for _, s := range a.skills.All() {
+		fmt.Fprintf(a.output, "  %-20s %s\n", s.Name, s.Description)
+	}
+}
+
+func (a *Agent) ListMCP() {
+	if a.mcp == nil || len(a.mcp.clients) == 0 {
+		fmt.Fprintln(a.output, "[无 MCP server] 在 config.yaml 的 mcp 段配置")
+		return
+	}
+	fmt.Fprintln(a.output, "MCP server:")
+	for name, client := range a.mcp.clients {
+		tools, err := client.ListTools(context.Background())
+		if err != nil {
+			fmt.Fprintf(a.output, "  %s: (工具列表获取失败: %v)\n", name, err)
+			continue
+		}
+		fmt.Fprintf(a.output, "  %s: %d 个工具\n", name, len(tools))
+		for _, t := range tools {
+			fmt.Fprintf(a.output, "    - %s: %s\n", t.Name, t.Description)
+		}
+		// 尝试列出 resources
+		resources, err := client.ListResources(context.Background())
+		if err == nil && len(resources) > 0 {
+			fmt.Fprintf(a.output, "  %s: %d 个资源\n", name, len(resources))
+			for _, r := range resources {
+				fmt.Fprintf(a.output, "    - %s: %s\n", r.URI, r.Name)
+			}
+		}
+		// 尝试列出 prompts
+		prompts, err := client.ListPrompts(context.Background())
+		if err == nil && len(prompts) > 0 {
+			fmt.Fprintf(a.output, "  %s: %d 个 prompt\n", name, len(prompts))
+			for _, p := range prompts {
+				fmt.Fprintf(a.output, "    - %s: %s\n", p.Name, p.Description)
+			}
+		}
+	}
+}
+
+func (a *Agent) GetPrompt(input string) {
+	if a.mcp == nil || len(a.mcp.clients) == 0 {
+		fmt.Fprintln(a.output, "[无 MCP server]")
+		return
+	}
+	// 解析 prompt 名和参数: /prompt name key=val key2=val2
+	parts := strings.Fields(input)
+	if len(parts) == 0 {
+		fmt.Fprintln(a.output, "用法: /prompt <name> [key=val ...]")
+		return
+	}
+	name := parts[0]
+	args := map[string]string{}
+	for _, p := range parts[1:] {
+		if idx := strings.Index(p, "="); idx > 0 {
+			args[p[:idx]] = p[idx+1:]
+		}
+	}
+	text, err := a.mcp.GetPrompt(name, args)
+	if err != nil {
+		fmt.Fprintf(a.output, "[error] %v\n", err)
+		return
+	}
+	fmt.Fprintln(a.output, text)
 }

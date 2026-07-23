@@ -23,7 +23,6 @@ type MCPClient struct {
 	stdout io.Reader
 	mu     sync.Mutex
 	nextID int64
-	// pending 保存等待响应的请求
 	pending map[int64]chan jsonRPCResponse
 }
 
@@ -74,7 +73,6 @@ func (c *MCPClient) Close() error {
 	return c.cmd.Wait()
 }
 
-// readLoop 持续读 stdout，把响应分发给 pending 的调用方。
 func (c *MCPClient) readLoop() {
 	sc := bufio.NewReader(c.stdout)
 	dec := json.NewDecoder(sc)
@@ -95,7 +93,6 @@ func (c *MCPClient) readLoop() {
 	}
 }
 
-// call 发一个 JSON-RPC 请求并等待响应。
 func (c *MCPClient) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	id := atomic.AddInt64(&c.nextID, 1)
 	ch := make(chan jsonRPCResponse, 1)
@@ -129,17 +126,15 @@ func (c *MCPClient) call(ctx context.Context, method string, params any) (json.R
 	}
 }
 
-// Initialize 完成 MCP 握手。
 func (c *MCPClient) Initialize(ctx context.Context) error {
 	_, err := c.call(ctx, "initialize", map[string]any{
 		"protocolVersion": "2024-11-05",
 		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": "mini-opencode", "version": "0.3"},
+		"clientInfo":      map[string]any{"name": "mini-opencode", "version": "0.4"},
 	})
 	return err
 }
 
-// mcpToolList 是 tools/list 的响应结构。
 type mcpToolList struct {
 	Tools []mcpToolDef `json:"tools"`
 }
@@ -150,7 +145,6 @@ type mcpToolDef struct {
 	InputSchema json.RawMessage `json:"inputSchema"`
 }
 
-// ListTools 发现 server 暴露的工具。
 func (c *MCPClient) ListTools(ctx context.Context) ([]mcpToolDef, error) {
 	raw, err := c.call(ctx, "tools/list", map[string]any{})
 	if err != nil {
@@ -163,7 +157,6 @@ func (c *MCPClient) ListTools(ctx context.Context) ([]mcpToolDef, error) {
 	return list.Tools, nil
 }
 
-// mcpCallResult 是 tools/call 的响应结构。
 type mcpCallResult struct {
 	Content []struct {
 		Type string `json:"type"`
@@ -172,7 +165,6 @@ type mcpCallResult struct {
 	IsError bool `json:"isError,omitempty"`
 }
 
-// CallTool 调用一个远程工具。
 func (c *MCPClient) CallTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
 	raw, err := c.call(ctx, "tools/call", map[string]any{
 		"name":      name,
@@ -200,7 +192,7 @@ func (c *MCPClient) CallTool(ctx context.Context, name string, args json.RawMess
 	return out, nil
 }
 
-// ---------- 把 MCP 工具适配成本地 Tool 接口 ----------
+// ---------- MCP tool adapter ----------
 
 type mcpToolAdapter struct {
 	client *MCPClient
@@ -242,9 +234,25 @@ func (t *mcpToolAdapter) Execute(args string) (string, error) {
 	return t.client.CallTool(context.Background(), t.def.Name, raw)
 }
 
-// LoadMCPFromConfig 从 config 加载所有 MCP server，启动子进程、握手、发现工具，
-// 把工具注册进 registry。失败的服务端跳过并打印警告。
-func LoadMCPFromConfig(registry *ToolRegistry, servers map[string]MCPServerConfig) {
+// ---------- MCP manager ----------
+
+// MCPManager 管理所有已连接的 MCP server。
+type MCPManager struct {
+	clients map[string]*MCPClient
+}
+
+func NewMCPManager() *MCPManager {
+	return &MCPManager{clients: map[string]*MCPClient{}}
+}
+
+func (m *MCPManager) Close() {
+	for _, c := range m.clients {
+		c.Close()
+	}
+}
+
+// LoadFromConfig 从配置加载所有 MCP server。
+func (m *MCPManager) LoadFromConfig(registry *ToolRegistry, servers map[string]MCPServerConfig) {
 	ctx := context.Background()
 	for name, cfg := range servers {
 		client, err := NewMCPClient(cfg.Command, cfg.Args...)
@@ -266,6 +274,67 @@ func LoadMCPFromConfig(registry *ToolRegistry, servers map[string]MCPServerConfi
 		for _, td := range tools {
 			registry.Register(&mcpToolAdapter{client: client, def: td})
 		}
+		m.clients[name] = client
 		fmt.Fprintf(os.Stderr, "[mcp] %s: 加载 %d 个工具\n", name, len(tools))
 	}
+}
+
+// ListResources 聚合所有 MCP server 的资源列表。
+func (m *MCPManager) ListResources() []mcpResource {
+	ctx := context.Background()
+	var all []mcpResource
+	for name, client := range m.clients {
+		resources, err := client.ListResources(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[warn] MCP %s 列出资源失败: %v\n", name, err)
+			continue
+		}
+		all = append(all, resources...)
+	}
+	return all
+}
+
+// ReadResource 从第一个持有该 URI 的 server 读取资源。
+func (m *MCPManager) ReadResource(uri string) (string, error) {
+	ctx := context.Background()
+	for _, client := range m.clients {
+		text, err := client.ReadResource(ctx, uri)
+		if err == nil {
+			return text, nil
+		}
+	}
+	return "", fmt.Errorf("resource %s not found or unreadable", uri)
+}
+
+// ListPrompts 聚合所有 MCP server 的 prompt 模板。
+func (m *MCPManager) ListPrompts() []mcpPrompt {
+	ctx := context.Background()
+	var all []mcpPrompt
+	for name, client := range m.clients {
+		prompts, err := client.ListPrompts(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[warn] MCP %s 列出 prompt 失败: %v\n", name, err)
+			continue
+		}
+		all = append(all, prompts...)
+	}
+	return all
+}
+
+// GetPrompt 从第一个持有该名称的 server 获取 prompt。
+func (m *MCPManager) GetPrompt(name string, args map[string]string) (string, error) {
+	ctx := context.Background()
+	for _, client := range m.clients {
+		text, err := client.GetPrompt(ctx, name, args)
+		if err == nil {
+			return text, nil
+		}
+	}
+	return "", fmt.Errorf("prompt %s not found", name)
+}
+
+// 保持向后兼容。
+func LoadMCPFromConfig(registry *ToolRegistry, servers map[string]MCPServerConfig) {
+	mgr := NewMCPManager()
+	mgr.LoadFromConfig(registry, servers)
 }

@@ -1,0 +1,37 @@
+package tui
+
+import "github.com/charmbracelet/lipgloss"
+
+// Crush-inspired palette: dark substrate, violet accent, cyan user, green results.
+var (
+	colorAccent = lipgloss.Color("#7D56F4")
+	colorCyan   = lipgloss.Color("#22D3EE")
+	colorGreen  = lipgloss.Color("#4ADE80")
+	colorRed    = lipgloss.Color("#F87171")
+	colorDim    = lipgloss.Color("#6B7280")
+	colorFg     = lipgloss.Color("#E4E4E7")
+	colorYellow = lipgloss.Color("#FBBF24")
+)
+
+var (
+	userLabel = lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
+	userText  = lipgloss.NewStyle().Foreground(colorFg).PaddingLeft(2)
+
+	assistantLabel = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
+	assistantText  = lipgloss.NewStyle().Foreground(colorFg).PaddingLeft(2)
+
+	toolBox   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorDim).Padding(0, 1)
+	toolName  = lipgloss.NewStyle().Foreground(colorYellow).Bold(true)
+	toolArrow = lipgloss.NewStyle().Foreground(colorGreen).PaddingLeft(2)
+	toolError = lipgloss.NewStyle().Foreground(colorRed).PaddingLeft(2)
+
+	errorStyle   = lipgloss.NewStyle().Foreground(colorRed)
+	headerStyle  = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
+	inputBorder  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorAccent).Padding(0, 1)
+	promptStyle  = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
+	spinnerStyle = lipgloss.NewStyle().Foreground(colorAccent)
+	permBox      = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorYellow).Padding(0, 1)
+	dimStyle     = lipgloss.NewStyle().Foreground(colorDim)
+	keyLabel     = lipgloss.NewStyle().Foreground(colorYellow).Bold(true)
+	permAsk      = lipgloss.NewStyle().Foreground(colorYellow).Bold(true)
+)

@@ -45,6 +45,9 @@ docs/mcp.md           MCP 接入说明
 docs/prompt.md        Prompt 组装说明
 docs/tools.md         Tools 说明
 docs/providers.md     Provider 配置说明
+internal/skills       Skill 存取与安装（curated/local/GitHub）
+docs/skills.md        Skills 说明
+docs/hooks.md         Hooks（危险行为拦截 / 循环检测）说明
 ```
 
 ## 运行
@@ -52,3 +55,16 @@ docs/providers.md     Provider 配置说明
 ```bash
 go run ./cmd/mini-opencode
 ```
+
+## Skills
+
+Agent 可通过 `install_skill` 工具自行安装 skill（`SKILL.md`），来源包括内置 curated 列表、本地路径、GitHub 仓库。安装后 skill 会出现在系统 prompt 的 `<available_skills>` 中；CLI 中用 `/skills` 查看已安装与可安装的 skill。
+
+## Hooks
+
+Runtime 内置两个 hook 拦截危险行为与 token 浪费：
+
+- `SafetyHook`：拦截删库、`drop database`、`git push --force`、`git clean -fdx`、`rm -rf .git` 等破坏性命令，并禁止写入工作区根目录或 `.git`；遇到 `rm -rf /`、`mkfs` 等灾难性命令直接中止运行。
+- `LoopGuardHook`：检测 agent 重复调用同一工具或整轮回复重复，达到阈值（默认 3 次）即中止运行，避免重复思考造成的 token 浪费。
+
+详见 [docs/hooks.md](docs/hooks.md)。

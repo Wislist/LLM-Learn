@@ -1,6 +1,7 @@
 {
   "provider": {
-    "name": "echo"
+    "name": "echo",
+    "context_window": 8192
   },
   "mcpServers": {
     "go": {

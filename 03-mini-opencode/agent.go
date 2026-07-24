@@ -77,10 +77,12 @@ func NewAgent(client *llmg.Client, config Config, workDir string) *Agent {
 
 	// 加载本地技能。
 	skillStore := NewSkillStore(config.SkillsDir)
-	if len(skillStore.All()) > 0 {
-		tools.Register(&listSkillsTool{store: skillStore})
-		tools.Register(&readSkillTool{store: skillStore})
-	}
+	// 技能工具始终注册：即使当前无技能，LLM 也能用 install_skill 安装第一个技能。
+	tools.Register(&listSkillsTool{store: skillStore})
+	tools.Register(&readSkillTool{store: skillStore})
+	tools.Register(&installSkillTool{store: skillStore})
+	tools.Register(&installSkillFromGitHubTool{store: skillStore})
+	tools.Register(&removeSkillTool{store: skillStore})
 
 	// 加载 MCP server。
 	mcpMgr := NewMCPManager()
@@ -480,13 +482,40 @@ func (a *Agent) ToggleAutoApprove() {
 
 func (a *Agent) ListSkills() {
 	if a.skills == nil || len(a.skills.All()) == 0 {
-		fmt.Fprintln(a.output, "[无可用技能] 在 .mini-opencode/skills/<name>/SKILL.md 放置技能文件")
+		fmt.Fprintln(a.output, "[无可用技能] 让 LLM 用 install_skill 创建，或 /install-skill 安装")
 		return
 	}
 	fmt.Fprintln(a.output, "可用技能:")
 	for _, s := range a.skills.All() {
 		fmt.Fprintf(a.output, "  %-20s %s\n", s.Name, s.Description)
 	}
+}
+
+// InstallSkill 创建一个本地技能。由 /install-skill 命令调用。
+func (a *Agent) InstallSkill(name, content string) {
+	if a.skills == nil {
+		fmt.Fprintln(a.output, "[错误] 技能存储不可用")
+		return
+	}
+	path, err := a.skills.Install(name, content)
+	if err != nil {
+		fmt.Fprintf(a.output, "[错误] %v\n", err)
+		return
+	}
+	fmt.Fprintf(a.output, "[已安装技能] %s -> %s\n", name, path)
+}
+
+// RemoveSkill 删除一个本地技能。由 /remove-skill 命令调用。
+func (a *Agent) RemoveSkill(name string) {
+	if a.skills == nil {
+		fmt.Fprintln(a.output, "[错误] 技能存储不可用")
+		return
+	}
+	if err := a.skills.Remove(name); err != nil {
+		fmt.Fprintf(a.output, "[错误] %v\n", err)
+		return
+	}
+	fmt.Fprintf(a.output, "[已删除技能] %s\n", name)
 }
 
 func (a *Agent) ListMCP() {

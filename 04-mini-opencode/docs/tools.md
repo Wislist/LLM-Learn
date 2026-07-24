@@ -19,6 +19,8 @@ Current scope:
 This package currently defines names, defaults, instruction files, concrete shell/job tools, concrete file tools, and concrete search tools.
 The runtime/TUI execution interface will be added in later tasks.
 
+- `install_skill`: install a `SKILL.md` skill from a curated name, local path, or GitHub repo path. See [skills.md](skills.md).
+
 `bash` is now implemented as the first concrete tool. It currently uses
 `os/exec` with `bash -lc`, not `mvdan/sh`. It supports:
 

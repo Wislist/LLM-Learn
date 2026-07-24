@@ -18,6 +18,7 @@ func TestCodingToolsIncludesCommonCodingTools(t *testing.T) {
 		BashToolName,
 		JobOutputToolName,
 		JobKillToolName,
+		InstallSkillToolName,
 	} {
 		if !got[want] {
 			t.Fatalf("missing tool %s", want)

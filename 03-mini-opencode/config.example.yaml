@@ -33,4 +33,8 @@ skills_dir: ".mini-opencode/skills"  # 本地技能目录
 #   another-skill/
 #     SKILL.md
 #
-# 启动时自动扫描，LLM 可通过 list_skills / read_skill 工具使用
+# 启动时自动扫描，LLM 可通过 list_skills / read_skill 工具使用。
+# 安装技能：
+#   - LLM 工具：install_skill（本地创建）、install_skill_from_github（从 GitHub 下载）、remove_skill
+#   - 用户命令：/install-skill <name> <file>、/install-skill-github <owner/repo> <path> [ref]、/remove-skill <name>
+# 安装后立即生效，无需重启。

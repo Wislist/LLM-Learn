@@ -36,5 +36,6 @@ func CodingTools(options CodingToolOptions) []agent.Tool {
 			Jobs:            options.Jobs,
 			InstructionData: options.InstructionData,
 		}),
+		NewInstallSkillTool(fileOptions),
 	}
 }

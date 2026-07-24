@@ -34,4 +34,22 @@ var (
 	dimStyle     = lipgloss.NewStyle().Foreground(colorDim)
 	keyLabel     = lipgloss.NewStyle().Foreground(colorYellow).Bold(true)
 	permAsk      = lipgloss.NewStyle().Foreground(colorYellow).Bold(true)
+
+	cmdStyle = lipgloss.NewStyle().Foreground(colorCyan)
+)
+
+// Git status styles.
+var (
+	gitBranchStyle    = lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
+	gitCleanStyle     = lipgloss.NewStyle().Foreground(colorGreen)
+	gitStagedStyle    = lipgloss.NewStyle().Foreground(colorGreen)
+	gitModifiedStyle  = lipgloss.NewStyle().Foreground(colorYellow)
+	gitUntrackedStyle = lipgloss.NewStyle().Foreground(colorRed)
+)
+
+// Context usage styles, color-coded by usage tier.
+var (
+	ctxLowStyle  = lipgloss.NewStyle().Foreground(colorGreen)
+	ctxMidStyle  = lipgloss.NewStyle().Foreground(colorYellow)
+	ctxHighStyle = lipgloss.NewStyle().Foreground(colorRed).Bold(true)
 )

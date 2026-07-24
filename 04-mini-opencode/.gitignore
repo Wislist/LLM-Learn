@@ -1,3 +1,4 @@
 .gocache/
 config.json
 .mini-opencode/
+.DS_Store

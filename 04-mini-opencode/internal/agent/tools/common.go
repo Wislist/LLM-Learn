@@ -16,6 +16,8 @@ const (
 	DefaultMaxOutputLength = 20_000
 )
 
+const InstallSkillToolName = "install_skill"
+
 const DefaultAutoBackgroundAfter = time.Minute
 
 var DefaultBannedCommands = []string{

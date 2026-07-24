@@ -50,6 +50,8 @@ const (
 	EventToolPermissionDenied   EventType = "tool_permission_denied"
 	EventRunFinished            EventType = "run_finished"
 	EventRunFailed              EventType = "run_failed"
+	EventHookDenied             EventType = "hook_denied"
+	EventHookStopped            EventType = "hook_stopped"
 )
 
 type Event struct {

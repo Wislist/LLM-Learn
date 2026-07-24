@@ -64,3 +64,24 @@ func TestSaveWritesConfigFile(t *testing.T) {
 		t.Fatalf("provider = %q", cfg.Provider.Name)
 	}
 }
+
+func TestEffectiveContextWindowUsesConfiguredValue(t *testing.T) {
+	cfg := ProviderConfig{ContextWindow: 32000}
+	if got := cfg.EffectiveContextWindow(); got != 32000 {
+		t.Fatalf("EffectiveContextWindow() = %d, want 32000", got)
+	}
+}
+
+func TestEffectiveContextWindowFallsBackToModelDefault(t *testing.T) {
+	cfg := ProviderConfig{Model: "deepseek-chat"}
+	if got := cfg.EffectiveContextWindow(); got != 64000 {
+		t.Fatalf("EffectiveContextWindow() = %d, want 64000", got)
+	}
+}
+
+func TestEffectiveContextWindowUnknownModelDefault(t *testing.T) {
+	cfg := ProviderConfig{Model: "some-custom-model"}
+	if got := cfg.EffectiveContextWindow(); got != 8192 {
+		t.Fatalf("EffectiveContextWindow() = %d, want 8192", got)
+	}
+}

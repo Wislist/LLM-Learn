@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +34,16 @@ func RunTUI(ctx context.Context) error {
 	})
 	model.SetRuntimeFactory(func(newCfg config.Config) (*agent.Runtime, error) {
 		return newTUIRuntime(workingDir, newCfg, model)
+	})
+	model.SetCompactor(func(ctx context.Context) (string, error) {
+		summaryPrompt, err := prompt.SummarySystemPrompt(workingDir)
+		if err != nil {
+			return "", err
+		}
+		if model.Runtime() == nil {
+			return "", fmt.Errorf("no runtime available")
+		}
+		return model.Runtime().Compact(ctx, summaryPrompt)
 	})
 
 	rt, err := newTUIRuntime(workingDir, cfg, model)

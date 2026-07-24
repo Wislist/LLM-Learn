@@ -21,15 +21,16 @@ type InstructionData struct {
 }
 
 var instructionFileByTool = map[string]string{
-	BashToolName:      "bash.md.tpl",
-	ReadToolName:      "read.md",
-	WriteToolName:     "write.md",
-	EditToolName:      "edit.md",
-	LSToolName:        "ls.md",
-	GlobToolName:      "glob.md.tpl",
-	GrepToolName:      "grep.md.tpl",
-	JobOutputToolName: "job_output.md",
-	JobKillToolName:   "job_kill.md",
+	BashToolName:         "bash.md.tpl",
+	ReadToolName:         "read.md",
+	WriteToolName:        "write.md",
+	EditToolName:         "edit.md",
+	LSToolName:           "ls.md",
+	GlobToolName:         "glob.md.tpl",
+	GrepToolName:         "grep.md.tpl",
+	JobOutputToolName:    "job_output.md",
+	JobKillToolName:      "job_kill.md",
+	InstallSkillToolName: "install_skill.md",
 }
 
 func DefaultInstructionData() InstructionData {

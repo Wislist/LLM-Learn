@@ -76,6 +76,15 @@ func (r *ToolRegistry) Specs() []ToolSpec {
 	return specs
 }
 
+// Definition returns the registered definition for a tool by name.
+func (r *ToolRegistry) Definition(name string) (ToolDefinition, bool) {
+	tool, ok := r.tools[name]
+	if !ok {
+		return ToolDefinition{}, false
+	}
+	return tool.Definition(), true
+}
+
 func (r *ToolRegistry) Run(ctx context.Context, call ToolCall) ToolResult {
 	return r.run(ctx, call, false)
 }

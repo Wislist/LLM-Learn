@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Config struct {
@@ -19,6 +20,9 @@ type ProviderConfig struct {
 	Model     string `json:"model"`
 	APIKey    string `json:"api_key,omitempty"`
 	APIKeyEnv string `json:"api_key_env"`
+	// ContextWindow is the model's max context size in tokens. When zero,
+	// EffectiveContextWindow falls back to a model-based default.
+	ContextWindow int `json:"context_window,omitempty"`
 }
 
 type MCPServerConfig struct {
@@ -85,6 +89,36 @@ func (c ProviderConfig) ResolvedAPIKey() string {
 		return ""
 	}
 	return os.Getenv(c.APIKeyEnv)
+}
+
+// EffectiveContextWindow returns the configured context window, or a default
+// derived from the model name when ContextWindow is unset.
+func (c ProviderConfig) EffectiveContextWindow() int {
+	if c.ContextWindow > 0 {
+		return c.ContextWindow
+	}
+	return DefaultContextWindow(c.Model)
+}
+
+// DefaultContextWindow returns a best-guess max context size in tokens for
+// common models. Falls back to a conservative 8k when unknown.
+func DefaultContextWindow(model string) int {
+	switch strings.ToLower(model) {
+	case "deepseek-chat":
+		return 64000
+	case "deepseek-reasoner", "deepseek-coder":
+		return 64000
+	case "gpt-4o", "gpt-4o-mini":
+		return 128000
+	case "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano":
+		return 1047576
+	case "o3", "o4-mini":
+		return 200000
+	case "":
+		return 8192
+	default:
+		return 8192
+	}
 }
 
 func (c ProviderConfig) ResolvedAPIKeyFrom(workDir string) string {

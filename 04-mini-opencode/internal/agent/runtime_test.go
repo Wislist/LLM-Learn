@@ -162,3 +162,80 @@ func hasEvent(events []EventType, want EventType) bool {
 	}
 	return false
 }
+
+func TestRuntimeCompactSummarizesAndReplacesMessages(t *testing.T) {
+	provider := &scriptedProvider{
+		responses: []AssistantResponse{
+			{Content: "using tool", ToolCalls: []ToolCall{{
+				ID: "call-1", Name: "uppercase",
+				Arguments: json.RawMessage(`{"text":"hello"}`),
+			}}},
+			{Content: "finished"},
+			{Content: "SUMMARY: user uppercased hello"},
+		},
+	}
+	runtime := NewRuntime(provider, WithTool(uppercaseTool{}))
+
+	if err := runtime.Run(context.Background(), "start", func(event Event) {}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	before := len(runtime.Messages())
+	if before < 4 {
+		t.Fatalf("before compact message count = %d, want >= 4", before)
+	}
+
+	summary, err := runtime.Compact(context.Background(), "summarize the conversation")
+	if err != nil {
+		t.Fatalf("Compact() error = %v", err)
+	}
+	if summary != "SUMMARY: user uppercased hello" {
+		t.Fatalf("summary = %q", summary)
+	}
+
+	after := runtime.Messages()
+	if len(after) != 1 {
+		t.Fatalf("after compact message count = %d, want 1", len(after))
+	}
+	if after[0].Role != RoleUser {
+		t.Fatalf("after compact role = %s, want user", after[0].Role)
+	}
+	if !strings.Contains(after[0].Content, "SUMMARY: user uppercased hello") {
+		t.Fatalf("after compact content = %q", after[0].Content)
+	}
+	if !strings.Contains(after[0].Content, "<conversation_summary>") {
+		t.Fatalf("after compact content missing summary tags: %q", after[0].Content)
+	}
+}
+
+func TestRuntimeCompactNoMessagesIsNoop(t *testing.T) {
+	provider := &scriptedProvider{}
+	runtime := NewRuntime(provider)
+
+	summary, err := runtime.Compact(context.Background(), "summarize")
+	if err != nil {
+		t.Fatalf("Compact() error = %v", err)
+	}
+	if summary != "" {
+		t.Fatalf("summary = %q, want empty", summary)
+	}
+	if provider.calls != 0 {
+		t.Fatalf("provider calls = %d, want 0", provider.calls)
+	}
+}
+
+func TestRuntimeContextEstimateGrowsWithMessages(t *testing.T) {
+	runtime := NewRuntime(&scriptedProvider{}, WithSystemPrompt("1234"))
+
+	before := runtime.ContextEstimate()
+	if before < 1 {
+		t.Fatalf("before = %d, want >= 1", before)
+	}
+
+	if err := runtime.Run(context.Background(), "a sufficiently long user message", func(Event) {}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	after := runtime.ContextEstimate()
+	if after <= before {
+		t.Fatalf("after = %d, before = %d, want after > before", after, before)
+	}
+}

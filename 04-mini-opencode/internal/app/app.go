@@ -13,6 +13,7 @@ import (
 	"github.com/wislist/mini-opencode/internal/agent/prompt"
 	"github.com/wislist/mini-opencode/internal/agent/tools"
 	"github.com/wislist/mini-opencode/internal/config"
+	"github.com/wislist/mini-opencode/internal/skills"
 )
 
 const version = "0.1.0"
@@ -36,7 +37,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 	}
 
 	fmt.Fprintf(out, "mini-opencode %s\n", version)
-	fmt.Fprintln(out, "commands: /help /version /tools /key /quit")
+	fmt.Fprintln(out, "commands: /help /version /tools /skills /key /compact /quit")
 
 	for {
 		select {
@@ -63,6 +64,12 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 		case "/tools":
 			for _, tool := range runtime.Tools() {
 				fmt.Fprintf(out, "%s\t%s\n", tool.Name, tool.Description)
+			}
+		case "/skills":
+			printSkills(out, workingDir)
+		case "/compact":
+			if err := runCompact(ctx, out, workingDir, runtime); err != nil {
+				fmt.Fprintf(out, "error: %v\n", err)
 			}
 		case "/key":
 			if err := configureDeepSeekKey(scanner, out, workingDir, &cfg, ""); err != nil {
@@ -104,6 +111,51 @@ func printHelp(out io.Writer) {
 	fmt.Fprintln(out, "commands: /key <deepseek-api-key> saves a local key and switches provider to DeepSeek.")
 }
 
+func runCompact(ctx context.Context, out io.Writer, workingDir string, runtime *agent.Runtime) error {
+	if len(runtime.Messages()) == 0 {
+		fmt.Fprintln(out, "[nothing to compact yet]")
+		return nil
+	}
+	before := len(runtime.Messages())
+	summaryPrompt, err := prompt.SummarySystemPrompt(workingDir)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "[compacting context...]")
+	summary, err := runtime.Compact(ctx, summaryPrompt)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "[context compacted: %d messages -> 1]\n", before)
+	fmt.Fprintln(out, summary)
+	return nil
+}
+
+func toPromptSkills(installed []skills.Skill) []prompt.Skill {
+	out := make([]prompt.Skill, 0, len(installed))
+	for _, s := range installed {
+		out = append(out, prompt.Skill{Name: s.Name, Description: s.Description, Location: s.Location})
+	}
+	return out
+}
+
+func printSkills(out io.Writer, workingDir string) {
+	installed, err := skills.LoadSkills(workingDir)
+	if err != nil {
+		fmt.Fprintf(out, "error loading skills: %v\n", err)
+		return
+	}
+	if len(installed) == 0 {
+		fmt.Fprintln(out, "no skills installed")
+	} else {
+		fmt.Fprintln(out, "installed skills:")
+		for _, s := range installed {
+			fmt.Fprintf(out, "  %s\t%s\n", s.Name, s.Description)
+		}
+	}
+	fmt.Fprintf(out, "curated available: %s\n", strings.Join(skills.CuratedNames(), ", "))
+}
+
 func newRuntime(workingDir string, cfg config.Config, scanner *bufio.Scanner, out io.Writer) (*agent.Runtime, error) {
 	promptContext := prompt.DefaultPromptContext(workingDir)
 	contextFiles, err := prompt.DiscoverContextFiles(workingDir, nil)
@@ -111,6 +163,12 @@ func newRuntime(workingDir string, cfg config.Config, scanner *bufio.Scanner, ou
 		return nil, err
 	}
 	promptContext.ContextFiles = contextFiles
+
+	installed, err := skills.LoadSkills(workingDir)
+	if err != nil {
+		return nil, err
+	}
+	promptContext.Skills = toPromptSkills(installed)
 
 	systemPrompt, err := prompt.BuildSystemPrompt(prompt.PromptCoder, promptContext)
 	if err != nil {
@@ -126,6 +184,8 @@ func newRuntime(workingDir string, cfg config.Config, scanner *bufio.Scanner, ou
 		agent.WithSystemPrompt(systemPrompt),
 		agent.WithPermissionPolicy(agent.NewDefaultPermissionPolicy(workingDir)),
 		agent.WithPermissionConfirmer(confirmTool(scanner, out)),
+		agent.WithHook(agent.NewSafetyHook(workingDir)),
+		agent.WithHook(agent.NewLoopGuardHook()),
 	}
 	for _, tool := range tools.CodingTools(tools.CodingToolOptions{WorkDir: workingDir}) {
 		options = append(options, agent.WithTool(tool))
@@ -231,6 +291,14 @@ func renderEvent(out io.Writer) func(agent.Event) {
 		case agent.EventToolCallFailed, agent.EventToolPermissionRequired, agent.EventToolPermissionDenied:
 			if event.ToolResult != nil && event.ToolResult.Error != "" {
 				fmt.Fprintf(out, "tool error: %s\n", event.ToolResult.Error)
+			}
+		case agent.EventHookDenied:
+			if event.ToolResult != nil && event.ToolResult.Error != "" {
+				fmt.Fprintf(out, "hook blocked: %s\n", event.ToolResult.Error)
+			}
+		case agent.EventHookStopped:
+			if event.Error != nil {
+				fmt.Fprintf(out, "hook stopped run: %v\n", event.Error)
 			}
 		}
 	}

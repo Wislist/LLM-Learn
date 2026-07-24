@@ -133,6 +133,12 @@ func RenderPromptTemplate(kind PromptKind, ctx PromptContext) (string, error) {
 	return buf.String(), nil
 }
 
+// SummarySystemPrompt renders the conversation-summary prompt template for the
+// given working directory. It is intended to be passed to Runtime.Compact.
+func SummarySystemPrompt(workingDir string) (string, error) {
+	return RenderPromptTemplate(PromptSummary, DefaultPromptContext(workingDir))
+}
+
 func DiscoverContextFiles(workingDir string, candidates []string) ([]ContextFile, error) {
 	if len(candidates) == 0 {
 		candidates = DefaultContextFileCandidates

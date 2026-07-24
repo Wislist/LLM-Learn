@@ -24,6 +24,7 @@ const (
 	statePermission
 	stateKeyPrompt
 	stateQuitting
+	stateCompacting
 )
 
 // Messages bridging the synchronous runtime goroutine into Bubble Tea.
@@ -33,6 +34,10 @@ type permissionRequestMsg struct {
 	call   agent.ToolCall
 	result *agent.ToolResult
 	resp   chan bool
+}
+type compactDoneMsg struct {
+	summary string
+	err     error
 }
 
 // Callbacks the TUI needs from app.go.
@@ -56,13 +61,20 @@ type Model struct {
 	width      int
 	height     int
 
+	gitStatus   GitStatus
+
 	pendingPerm    *permissionRequestMsg
 	keySaver       KeySaver
 	runtimeFactory RuntimeFactory
+	compactor      Compactor
 
 	ctx    context.Context
 	cancel context.CancelFunc
 }
+
+// Compactor summarizes the current conversation context. It returns the
+// generated summary text.
+type Compactor func(ctx context.Context) (string, error)
 
 func New(cfg *config.Config, workingDir, ver string) *Model {
 	vp := viewport.New(80, 20)
@@ -95,9 +107,11 @@ func New(cfg *config.Config, workingDir, ver string) *Model {
 }
 
 func (m *Model) SetRuntime(rt *agent.Runtime)          { m.runtime = rt }
+func (m *Model) Runtime() *agent.Runtime                { return m.runtime }
 func (m *Model) SetProgram(p *tea.Program)             { m.program = p }
 func (m *Model) SetKeySaver(ks KeySaver)               { m.keySaver = ks }
 func (m *Model) SetRuntimeFactory(rf RuntimeFactory)   { m.runtimeFactory = rf }
+func (m *Model) SetCompactor(c Compactor)              { m.compactor = c }
 func (m *Model) MakeConfirmer() agent.PermissionConfirmer {
 	return func(ctx context.Context, call agent.ToolCall, result agent.ToolResult) bool {
 		resp := make(chan bool, 1)
@@ -114,6 +128,7 @@ func (m *Model) MakeConfirmer() agent.PermissionConfirmer {
 func (m *Model) Init() tea.Cmd {
 	m.addBlock(dimStyle.Render("welcome to mini-opencode") + "\n" +
 		dimStyle.Render("type /help for commands, or just start typing."))
+	m.gitStatus = collectGitStatus(m.workingDir)
 	return textinput.Blink
 }
 
@@ -130,7 +145,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinner.TickMsg:
-		if m.state == stateRunning {
+		if m.state == stateRunning || m.state == stateCompacting {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			cmds = append(cmds, cmd)
@@ -144,6 +159,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.addBlock(errorStyle.Render("✗ " + msg.err.Error()))
 		}
+		m.gitStatus = collectGitStatus(m.workingDir)
+		m.refreshViewport()
+		m.input.Focus()
+		cmds = append(cmds, textinput.Blink)
+
+	case compactDoneMsg:
+		m.state = stateIdle
+		if msg.err != nil {
+			m.addBlock(errorStyle.Render("✗ compact: " + msg.err.Error()))
+		} else if msg.summary != "" {
+			m.addBlock(toolArrow.Render("⟳ context compacted"))
+			m.addBlock(dimStyle.Render(msg.summary))
+		}
+		m.gitStatus = collectGitStatus(m.workingDir)
 		m.refreshViewport()
 		m.input.Focus()
 		cmds = append(cmds, textinput.Blink)
@@ -185,6 +214,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleKeyPromptKey(msg)
 	case stateQuitting:
 		return m, tea.Quit
+	case stateCompacting:
+		return m.handleCompactingKey(msg)
 	}
 	return m, nil
 }
@@ -227,6 +258,24 @@ func (m *Model) handleRunningKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.state = stateIdle
 		m.addBlock(errorStyle.Render("✗ interrupted"))
+		m.refreshViewport()
+		return m, textinput.Blink
+	case tea.KeyUp:
+		m.viewport.LineUp(1)
+	case tea.KeyDown:
+		m.viewport.LineDown(1)
+	}
+	return m, nil
+}
+
+func (m *Model) handleCompactingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		if m.cancel != nil {
+			m.cancel()
+		}
+		m.state = stateIdle
+		m.addBlock(errorStyle.Render("✗ compact interrupted"))
 		m.refreshViewport()
 		return m, textinput.Blink
 	case tea.KeyUp:
@@ -296,6 +345,11 @@ func (m *Model) handleInput(input string) (tea.Model, tea.Cmd) {
 		m.addBlock(m.renderTools())
 		m.refreshViewport()
 		return m, nil
+	case input == "/status":
+		m.gitStatus = collectGitStatus(m.workingDir)
+		m.addBlock(m.renderStatus())
+		m.refreshViewport()
+		return m, nil
 	case input == "/key":
 		m.state = stateKeyPrompt
 		m.keyInput.Reset()
@@ -303,6 +357,8 @@ func (m *Model) handleInput(input string) (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 	case strings.HasPrefix(input, "/key "):
 		return m.saveKey(strings.TrimSpace(strings.TrimPrefix(input, "/key ")))
+	case input == "/compact":
+		return m.startCompact()
 	case strings.HasPrefix(input, "/"):
 		m.addBlock(errorStyle.Render("unknown command: " + input))
 		m.refreshViewport()
@@ -354,6 +410,39 @@ func (m *Model) saveKey(key string) (tea.Model, tea.Cmd) {
 	m.state = stateIdle
 	m.refreshViewport()
 	return m, textinput.Blink
+}
+
+func (m *Model) startCompact() (tea.Model, tea.Cmd) {
+	if m.runtime == nil {
+		m.addBlock(errorStyle.Render("no runtime available. use /key to configure."))
+		m.refreshViewport()
+		return m, nil
+	}
+	if len(m.runtime.Messages()) == 0 {
+		m.addBlock(dimStyle.Render("nothing to compact yet"))
+		m.refreshViewport()
+		return m, nil
+	}
+	if m.compactor == nil {
+		m.addBlock(errorStyle.Render("compactor not configured"))
+		m.refreshViewport()
+		return m, nil
+	}
+	m.state = stateCompacting
+	m.input.Blur()
+	m.addBlock(dimStyle.Render("compacting context..."))
+	m.refreshViewport()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	m.ctx = ctx
+	m.cancel = cancel
+
+	go func() {
+		summary, err := m.compactor(ctx)
+		m.program.Send(compactDoneMsg{summary: summary, err: err})
+	}()
+
+	return m, spinner.Tick
 }
 
 func (m *Model) handleRuntimeEvent(event agent.Event) {
@@ -411,9 +500,42 @@ func (m *Model) View() string {
 
 func (m *Model) renderHeader() string {
 	left := headerStyle.Render("◆ mini-opencode")
-	right := dimStyle.Render(fmt.Sprintf("v%s · %s", m.version, m.cfg.Provider.Name))
+	left += m.renderGitSegment()
+	right := m.renderContextSegment() + "  " + dimStyle.Render(fmt.Sprintf("v%s · %s", m.version, m.cfg.Provider.Name))
 	space := max(0, m.width-lipgloss.Width(left)-lipgloss.Width(right)-2)
 	return left + strings.Repeat(" ", space) + right
+}
+
+// renderGitSegment renders the branch and dirty-file counts for the header.
+func (m *Model) renderGitSegment() string {
+	if !m.gitStatus.Available {
+		return ""
+	}
+	branch := gitBranchStyle.Render(" " + m.gitStatus.Branch)
+	if !m.gitStatus.IsDirty() {
+		return branch + gitCleanStyle.Render(" ✓")
+	}
+	parts := []string{branch}
+	if m.gitStatus.Staged > 0 {
+		parts = append(parts, gitStagedStyle.Render(fmt.Sprintf(" +%d", m.gitStatus.Staged)))
+	}
+	if m.gitStatus.Modified > 0 {
+		parts = append(parts, gitModifiedStyle.Render(fmt.Sprintf(" ~%d", m.gitStatus.Modified)))
+	}
+	if m.gitStatus.Untracked > 0 {
+		parts = append(parts, gitUntrackedStyle.Render(fmt.Sprintf(" ?%d", m.gitStatus.Untracked)))
+	}
+	return strings.Join(parts, "")
+}
+
+// renderContextSegment renders an approximate token usage indicator.
+func (m *Model) renderContextSegment() string {
+	if m.runtime == nil {
+		return dimStyle.Render("ctx 0%")
+	}
+	tokens := m.runtime.ContextEstimate()
+	pct := contextPercent(tokens, m.cfg.Provider.EffectiveContextWindow())
+	return renderContextBar(pct)
 }
 
 func (m *Model) renderInputBar() string {
@@ -439,7 +561,10 @@ func (m *Model) renderHelpBar() string {
 	if m.state == stateRunning {
 		return spinnerStyle.Render(m.spinner.View()) + " " + dimStyle.Render("thinking...  ctrl+c to interrupt")
 	}
-	left := dimStyle.Render("/help /version /tools /key /quit")
+	if m.state == stateCompacting {
+		return spinnerStyle.Render(m.spinner.View()) + " " + dimStyle.Render("compacting...  ctrl+c to interrupt")
+	}
+	left := dimStyle.Render("/help /version /tools /status /key /compact /quit")
 	right := dimStyle.Render("↑↓ scroll")
 	space := max(0, m.width-lipgloss.Width(left)-lipgloss.Width(right))
 	return left + strings.Repeat(" ", space) + right
@@ -469,14 +594,39 @@ func (m *Model) renderTools() string {
 	return strings.Join(lines, "\n")
 }
 
+func (m *Model) renderStatus() string {
+	var lines []string
+	lines = append(lines, toolName.Render("status:"))
+	if m.gitStatus.Available {
+		lines = append(lines, "  "+cmdStyle.Render("git")+"  branch: "+m.gitStatus.Branch)
+		lines = append(lines, fmt.Sprintf("  staged: %d  modified: %d  untracked: %d",
+			m.gitStatus.Staged, m.gitStatus.Modified, m.gitStatus.Untracked))
+		if !m.gitStatus.IsDirty() {
+			lines = append(lines, "  "+gitCleanStyle.Render("working tree clean"))
+		}
+	} else {
+		lines = append(lines, "  "+dimStyle.Render("not a git repository"))
+	}
+	if m.runtime != nil {
+		tokens := m.runtime.ContextEstimate()
+		window := m.cfg.Provider.EffectiveContextWindow()
+		pct := contextPercent(tokens, window)
+		lines = append(lines, fmt.Sprintf("  %s  ~%s tokens  %.0f%% of %s  (%d messages)",
+			cmdStyle.Render("ctx"), formatTokens(tokens), pct, formatTokens(window), len(m.runtime.Messages())))
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (m *Model) renderHelp() string {
 	return toolName.Render("mini-opencode") + "\n" +
-		dimStyle.Render("  a fresh Go agent terminal\n\n") +
-		"  " + lipgloss.NewStyle().Foreground(colorCyan).Render("/help") + "    show this help\n" +
-		"  " + lipgloss.NewStyle().Foreground(colorCyan).Render("/version") + " show version\n" +
-		"  " + lipgloss.NewStyle().Foreground(colorCyan).Render("/tools") + "   list registered tools\n" +
-		"  " + lipgloss.NewStyle().Foreground(colorCyan).Render("/key") + "     set DeepSeek API key\n" +
-		"  " + lipgloss.NewStyle().Foreground(colorCyan).Render("/quit") + "    exit"
+		dimStyle.Render("  a fresh Go agent terminal") + "\n\n" +
+		"  " + cmdStyle.Render("/help") + "    show this help\n" +
+		"  " + cmdStyle.Render("/version") + " show version\n" +
+		"  " + cmdStyle.Render("/tools") + "   list registered tools\n" +
+		"  " + cmdStyle.Render("/status") + "  show git status and context usage\n" +
+		"  " + cmdStyle.Render("/compact") + " summarize and replace the conversation context\n" +
+		"  " + cmdStyle.Render("/key") + "     set DeepSeek API key\n" +
+		"  " + cmdStyle.Render("/quit") + "    exit"
 }
 
 // ── helpers ───────────────────────────────────────────
@@ -510,4 +660,38 @@ func extractToolDetail(call agent.ToolCall) string {
 		}
 	}
 	return strings.Join(parts, "  ")
+}
+
+// formatTokens renders a token count in a human-friendly compact form.
+func formatTokens(n int) string {
+	switch {
+	case n < 1000:
+		return fmt.Sprintf("%d", n)
+	case n < 1000000:
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	default:
+		return fmt.Sprintf("%.1fM", float64(n)/1000000)
+	}
+}
+
+// contextPercent returns the context usage as a percentage of window.
+func contextPercent(used, window int) float64 {
+	if window <= 0 {
+		return 0
+	}
+	return float64(used) / float64(window) * 100
+}
+
+// renderContextBar renders the context percentage with a compact bar and
+// color-coded by usage tier (green < 60%, yellow < 85%, red otherwise).
+func renderContextBar(pct float64) string {
+	label := fmt.Sprintf("ctx %.0f%%", pct)
+	switch {
+	case pct < 60:
+		return ctxLowStyle.Render(label)
+	case pct < 85:
+		return ctxMidStyle.Render(label)
+	default:
+		return ctxHighStyle.Render(label)
+	}
 }

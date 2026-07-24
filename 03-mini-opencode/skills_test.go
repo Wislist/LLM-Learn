@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -96,4 +97,158 @@ func TestSkillStore_Prompt(t *testing.T) {
 	}
 }
 
+func TestSkillStore_Install(t *testing.T) {
+	dir := t.TempDir()
+	store := NewSkillStore(dir)
 
+	content := "---\nname: my-skill\ndescription: A skill.\n---\n\nDo useful things."
+	path, err := store.Install("my-skill", content)
+	if err != nil {
+		t.Fatalf("Install failed: %v", err)
+	}
+	if !strings.HasSuffix(path, filepath.Join("my-skill", "SKILL.md")) {
+		t.Errorf("path = %s", path)
+	}
+
+	// 安装后应能通过 Get 取到，且内容一致。
+	skill, ok := store.Get("my-skill")
+	if !ok {
+		t.Fatal("skill not found after install")
+	}
+	if skill.Content != content {
+		t.Errorf("content mismatch: got %q", skill.Content)
+	}
+	// 文件确实落盘。
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("SKILL.md not on disk: %v", err)
+	}
+}
+
+func TestSkillStore_Install_Overwrite(t *testing.T) {
+	dir := t.TempDir()
+	store := NewSkillStore(dir)
+
+	if _, err := store.Install("s", "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Install("s", "v2-content"); err != nil {
+		t.Fatal(err)
+	}
+	skill, _ := store.Get("s")
+	if skill.Content != "v2-content" {
+		t.Errorf("overwrite failed: got %q", skill.Content)
+	}
+}
+
+func TestSkillStore_Install_EmptyDirConfigured(t *testing.T) {
+	store := NewSkillStore("")
+	if _, err := store.Install("x", "y"); err == nil {
+		t.Error("Install on empty dir should error")
+	}
+}
+
+func TestSkillStore_Install_InvalidName(t *testing.T) {
+	dir := t.TempDir()
+	store := NewSkillStore(dir)
+	for _, bad := range []string{"", "..", ".", "a/b", `a\b`} {
+		if _, err := store.Install(bad, "c"); err == nil {
+			t.Errorf("Install(%q) should reject", bad)
+		}
+	}
+}
+
+func TestSkillStore_Install_EmptyContent(t *testing.T) {
+	dir := t.TempDir()
+	store := NewSkillStore(dir)
+	if _, err := store.Install("s", "   "); err == nil {
+		t.Error("Install with blank content should error")
+	}
+}
+
+func TestSkillStore_Remove(t *testing.T) {
+	dir := t.TempDir()
+	store := NewSkillStore(dir)
+
+	if _, err := store.Install("gone", "# Gone\n\nbye."); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.Get("gone"); !ok {
+		t.Fatal("skill should exist before remove")
+	}
+	if err := store.Remove("gone"); err != nil {
+		t.Fatalf("Remove failed: %v", err)
+	}
+	if _, ok := store.Get("gone"); ok {
+		t.Error("skill should not exist after remove")
+	}
+	// 目录确实被删除。
+	if _, err := os.Stat(filepath.Join(dir, "gone")); !os.IsNotExist(err) {
+		t.Errorf("skill dir should be removed, stat err=%v", err)
+	}
+}
+
+func TestSkillStore_Remove_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	store := NewSkillStore(dir)
+	if err := store.Remove("nope"); err == nil {
+		t.Error("Remove nonexistent skill should error")
+	}
+}
+
+func TestSkillStore_Remove_InvalidName(t *testing.T) {
+	dir := t.TempDir()
+	store := NewSkillStore(dir)
+	if err := store.Remove("../escape"); err == nil {
+		t.Error("Remove with traversal name should error")
+	}
+}
+
+func TestInstallSkillTool_Execute(t *testing.T) {
+	dir := t.TempDir()
+	store := NewSkillStore(dir)
+	tool := &installSkillTool{store: store}
+
+	args := `{"name":"via-tool","content":"# Via Tool\n\ninstalled by LLM."}`
+	out, err := tool.Execute(args)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if !contains(out, `"success":true`) {
+		t.Errorf("unexpected output: %s", out)
+	}
+	if _, ok := store.Get("via-tool"); !ok {
+		t.Error("skill not registered in store after tool install")
+	}
+}
+
+func TestRemoveSkillTool_Execute(t *testing.T) {
+	dir := t.TempDir()
+	store := NewSkillStore(dir)
+	if _, err := store.Install("doomed", "# x\n\ny"); err != nil {
+		t.Fatal(err)
+	}
+	tool := &removeSkillTool{store: store}
+	out, err := tool.Execute(`{"name":"doomed"}`)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if !contains(out, `"success":true`) {
+		t.Errorf("unexpected output: %s", out)
+	}
+	if _, ok := store.Get("doomed"); ok {
+		t.Error("skill still present after remove tool")
+	}
+}
+
+func TestInstallSkillTool_SchemaRequired(t *testing.T) {
+	tool := &installSkillTool{}
+	schema := tool.Schema()
+	params := schema.Function.Parameters.(map[string]any)
+	props := params["properties"].(map[string]any)
+	if _, ok := props["name"]; !ok {
+		t.Error("schema missing name property")
+	}
+	if _, ok := props["content"]; !ok {
+		t.Error("schema missing content property")
+	}
+}

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 type Runtime struct {
@@ -13,6 +14,7 @@ type Runtime struct {
 	confirmer    PermissionConfirmer
 	messages     []Message
 	maxTurns     int
+	hooks        HookChain
 }
 
 type PermissionConfirmer func(ctx context.Context, call ToolCall, result ToolResult) bool
@@ -26,7 +28,7 @@ func NewRuntime(provider Provider, opts ...RuntimeOption) *Runtime {
 		provider:     provider,
 		tools:        tools,
 		toolService:  NewRegistryToolService(tools),
-		maxTurns:     8,
+		maxTurns:     100,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -76,6 +78,16 @@ func WithPermissionConfirmer(confirmer PermissionConfirmer) RuntimeOption {
 	}
 }
 
+// WithHook appends a runtime lifecycle hook. Hooks fire before each tool
+// call and after each turn; see the Hook interface for semantics.
+func WithHook(hook Hook) RuntimeOption {
+	return func(r *Runtime) {
+		if hook != nil {
+			r.hooks = append(r.hooks, hook)
+		}
+	}
+}
+
 func (r *Runtime) Messages() []Message {
 	out := make([]Message, len(r.messages))
 	copy(out, r.messages)
@@ -86,6 +98,54 @@ func (r *Runtime) Tools() []ToolView {
 	return r.toolService.ListTools()
 }
 
+// ContextEstimate returns a rough token count for the full context the
+// provider would see (system prompt + all messages). It uses the common
+// ~4-char-per-token heuristic, which is good enough for a status display
+// without pulling in a tokenizer dependency.
+func (r *Runtime) ContextEstimate() int {
+	total := len(r.systemPrompt)
+	for _, msg := range r.Messages() {
+		total += len(msg.Content)
+		total += len(msg.ToolCallID)
+		for _, call := range msg.ToolCalls {
+			total += len(call.ID) + len(call.Name) + len(call.Arguments)
+		}
+	}
+	return total / 4
+}
+
+func (r *Runtime) toolDefinition(name string) ToolDefinition {
+	def, _ := r.tools.Definition(name)
+	return def
+}
+
+// Compact asks the provider to summarize the current conversation and replaces
+// the message history with a single summary message. The summaryPrompt is the
+// instruction prompt (e.g. from the summary template) describing how to summarize.
+// It returns the generated summary text.
+func (r *Runtime) Compact(ctx context.Context, summaryPrompt string) (string, error) {
+	if len(r.messages) == 0 {
+		return "", nil
+	}
+	resp, err := r.provider.Complete(ctx, Request{
+		SystemPrompt: summaryPrompt,
+		Messages:     r.Messages(),
+	})
+	if err != nil {
+		return "", err
+	}
+	summary := strings.TrimSpace(resp.Content)
+	if summary == "" {
+		return "", fmt.Errorf("provider returned empty summary")
+	}
+	r.messages = []Message{{
+		Role: RoleUser,
+		Content: "<conversation_summary>\n" + summary +
+			"\n</conversation_summary>\n\nThe above summarizes our previous conversation. Continue from this context.",
+	}}
+	return summary, nil
+}
+
 func (r *Runtime) Run(ctx context.Context, input string, emit func(Event)) error {
 	if emit == nil {
 		emit = func(Event) {}
@@ -93,6 +153,7 @@ func (r *Runtime) Run(ctx context.Context, input string, emit func(Event)) error
 
 	r.messages = append(r.messages, Message{Role: RoleUser, Content: input})
 	emit(Event{Type: EventRunStarted})
+	r.hooks.OnRunStart(ctx)
 
 	for turn := 1; turn <= r.maxTurns; turn++ {
 		emit(Event{Type: EventTurnStarted, Turn: turn})
@@ -122,10 +183,34 @@ func (r *Runtime) Run(ctx context.Context, input string, emit func(Event)) error
 
 		for _, call := range resp.ToolCalls {
 			call := call
+			if decision := r.hooks.BeforeToolCall(ctx, call, r.toolDefinition(call.Name)); decision.Action != HookContinue {
+				if decision.Action == HookStop {
+					err := fmt.Errorf("run stopped by hook: %s", decision.Reason)
+					emit(Event{Type: EventHookStopped, Turn: turn, ToolCall: &call, Error: err})
+					emit(Event{Type: EventRunFailed, Turn: turn, ToolCall: &call, Error: err})
+					return err
+				}
+				result := ToolResult{
+					ToolCallID: call.ID,
+					Name:       call.Name,
+					Error:      "hook denied: " + decision.Reason,
+					Metadata:   map[string]any{"hook": string(HookDeny)},
+				}
+				r.recordToolResult(&result)
+				emit(Event{Type: EventHookDenied, Turn: turn, ToolCall: &call, ToolResult: &result, Error: fmt.Errorf("%s", decision.Reason)})
+				continue
+			}
 			if err := r.runTool(ctx, turn, call, emit); err != nil {
 				emit(Event{Type: EventRunFailed, Turn: turn, ToolCall: &call, Error: err})
 				return err
 			}
+		}
+
+		if decision := r.hooks.AfterTurn(ctx, turn, r.Messages()); decision.Action == HookStop {
+			err := fmt.Errorf("run stopped by hook: %s", decision.Reason)
+			emit(Event{Type: EventHookStopped, Turn: turn, Error: err})
+			emit(Event{Type: EventRunFailed, Turn: turn, Error: err})
+			return err
 		}
 	}
 

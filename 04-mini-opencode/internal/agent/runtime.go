@@ -78,6 +78,13 @@ func WithPermissionConfirmer(confirmer PermissionConfirmer) RuntimeOption {
 	}
 }
 
+// SetMessages replaces the conversation history. It is used to restore a
+// saved session into the runtime.
+func (r *Runtime) SetMessages(messages []Message) {
+	r.messages = make([]Message, len(messages))
+	copy(r.messages, messages)
+}
+
 // WithHook appends a runtime lifecycle hook. Hooks fire before each tool
 // call and after each turn; see the Hook interface for semantics.
 func WithHook(hook Hook) RuntimeOption {

@@ -23,6 +23,8 @@ func (m *Model) View() string {
 		sections = append(sections, m.renderPermissionPrompt())
 	} else if m.state == stateKeyPrompt {
 		sections = append(sections, m.renderKeyPrompt())
+	} else if m.state == stateSessionList {
+		sections = append(sections, m.renderSessionList())
 	} else {
 		sections = append(sections, m.renderInputBar())
 	}
@@ -33,6 +35,7 @@ func (m *Model) View() string {
 func (m *Model) renderHeader() string {
 	left := headerStyle.Render("◆ mini-opencode")
 	left += m.renderGitSegment()
+	left += m.renderSessionSegment()
 	right := m.renderContextSegment() + "  " + dimStyle.Render(fmt.Sprintf("v%s · %s", m.version, m.cfg.Provider.Name))
 	space := max(0, m.width-lipgloss.Width(left)-lipgloss.Width(right)-2)
 	return left + strings.Repeat(" ", space) + right
@@ -97,6 +100,7 @@ func (m *Model) renderHelpBar() string {
 		return spinnerStyle.Render(m.spinner.View()) + " " + dimStyle.Render("compacting...  ctrl+c to interrupt")
 	}
 	left := dimStyle.Render("/help /version /tools /status /key /compact /quit")
+	left = dimStyle.Render("/help /version /tools /status /session /newsession /compact /quit")
 	right := dimStyle.Render("↑↓ scroll")
 	space := max(0, m.width-lipgloss.Width(left)-lipgloss.Width(right))
 	return left + strings.Repeat(" ", space) + right
@@ -156,6 +160,8 @@ func (m *Model) renderHelp() string {
 		"  " + cmdStyle.Render("/version") + " show version\n" +
 		"  " + cmdStyle.Render("/tools") + "   list registered tools\n" +
 		"  " + cmdStyle.Render("/status") + "  show git status and context usage\n" +
+		"  " + cmdStyle.Render("/session") + "  list and switch to a saved conversation\n" +
+		"  " + cmdStyle.Render("/newsession") + "  start a new conversation\n" +
 		"  " + cmdStyle.Render("/compact") + " summarize and replace the conversation context\n" +
 		"  " + cmdStyle.Render("/key") + "     set DeepSeek API key\n" +
 		"  " + cmdStyle.Render("/quit") + "    exit"

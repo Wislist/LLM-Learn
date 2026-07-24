@@ -21,6 +21,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case stateCompacting:
 		return m.handleCompactingKey(msg)
+	case stateSessionList:
+		return m.handleSessionListKey(msg)
 	}
 	return m, nil
 }

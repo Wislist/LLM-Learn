@@ -7,12 +7,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/wislist/mini-opencode/internal/agent"
 	"github.com/wislist/mini-opencode/internal/agent/prompt"
 	"github.com/wislist/mini-opencode/internal/agent/tools"
 	"github.com/wislist/mini-opencode/internal/config"
+	"github.com/wislist/mini-opencode/internal/session"
 	"github.com/wislist/mini-opencode/internal/skills"
 )
 
@@ -36,8 +38,11 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 		return err
 	}
 
+	sessions := session.NewStore(workingDir)
+	currentSession := sessions.Create("new session")
+
 	fmt.Fprintf(out, "mini-opencode %s\n", version)
-	fmt.Fprintln(out, "commands: /help /version /tools /skills /key /compact /quit")
+	fmt.Fprintln(out, "commands: /help /version /tools /skills /key /compact /session /newsession /quit")
 
 	for {
 		select {
@@ -71,6 +76,45 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 			if err := runCompact(ctx, out, workingDir, runtime); err != nil {
 				fmt.Fprintf(out, "error: %v\n", err)
 			}
+		case "/newsession":
+			saveSession(sessions, currentSession, runtime)
+			currentSession = sessions.Create("new session")
+			runtime.SetMessages(nil)
+			fmt.Fprintln(out, "[new session started]")
+		case "/session", "/sessions":
+			metas, err := sessions.List()
+			if err != nil {
+				fmt.Fprintf(out, "error: %v\n", err)
+				continue
+			}
+			if len(metas) == 0 {
+				fmt.Fprintln(out, "[no saved sessions]")
+				continue
+			}
+			for i, meta := range metas {
+				fmt.Fprintf(out, "  %d. %s  (%d msgs, %s)\n", i+1, meta.Title, meta.MessageN, meta.UpdatedAt.Format("2006-01-02 15:04"))
+			}
+			fmt.Fprint(out, "select session number (0 to cancel): ")
+			if !scanner.Scan() {
+				return scanner.Err()
+			}
+			choice := strings.TrimSpace(scanner.Text())
+			idx, err := strconv.Atoi(choice)
+			if err != nil || idx < 1 || idx > len(metas) {
+				if choice != "0" && choice != "" {
+					fmt.Fprintln(out, "[cancelled]")
+				}
+				continue
+			}
+			sess, err := sessions.Load(metas[idx-1].ID)
+			if err != nil {
+				fmt.Fprintf(out, "error: %v\n", err)
+				continue
+			}
+			saveSession(sessions, currentSession, runtime)
+			currentSession = sess
+			runtime.SetMessages(sess.Messages)
+			fmt.Fprintf(out, "[switched to: %s]\n", sess.Title)
 		case "/key":
 			if err := configureDeepSeekKey(scanner, out, workingDir, &cfg, ""); err != nil {
 				fmt.Fprintf(out, "error: %v\n", err)
@@ -102,6 +146,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 			if err := runtime.Run(ctx, input, renderEvent(out)); err != nil {
 				fmt.Fprintf(out, "error: %v\n", err)
 			}
+			saveSession(sessions, currentSession, runtime)
 		}
 	}
 }
@@ -109,6 +154,25 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 func printHelp(out io.Writer) {
 	fmt.Fprintln(out, "mini-opencode is a fresh Go agent terminal project.")
 	fmt.Fprintln(out, "commands: /key <deepseek-api-key> saves a local key and switches provider to DeepSeek.")
+}
+
+// saveSession persists the current runtime messages to the active session.
+// It auto-titles untitled sessions from the first user message.
+func saveSession(store *session.Store, sess *session.Session, rt *agent.Runtime) {
+	if store == nil || sess == nil || rt == nil {
+		return
+	}
+	msgs := rt.Messages()
+	sess.Messages = msgs
+	if sess.Title == "new session" {
+		for _, msg := range msgs {
+			if msg.Role == agent.RoleUser {
+				sess.Title = session.TitleFromMessage(msg.Content)
+				break
+			}
+		}
+	}
+	_ = store.Save(sess)
 }
 
 func runCompact(ctx context.Context, out io.Writer, workingDir string, runtime *agent.Runtime) error {

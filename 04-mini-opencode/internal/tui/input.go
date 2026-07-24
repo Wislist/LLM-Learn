@@ -43,6 +43,10 @@ func (m *Model) handleInput(input string) (tea.Model, tea.Cmd) {
 		return m.saveKey(strings.TrimSpace(strings.TrimPrefix(input, "/key ")))
 	case input == "/compact":
 		return m.startCompact()
+	case input == "/newsession":
+		return m.handleNewSession()
+	case input == "/session", input == "/sessions":
+		return m.handleListSessions()
 	case strings.HasPrefix(input, "/"):
 		m.addBlock(errorStyle.Render("unknown command: " + input))
 		m.refreshViewport()

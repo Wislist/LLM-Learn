@@ -13,6 +13,7 @@ import (
 	"github.com/wislist/mini-opencode/internal/agent/prompt"
 	"github.com/wislist/mini-opencode/internal/agent/tools"
 	"github.com/wislist/mini-opencode/internal/config"
+	"github.com/wislist/mini-opencode/internal/session"
 	"github.com/wislist/mini-opencode/internal/tui"
 )
 
@@ -28,6 +29,8 @@ func RunTUI(ctx context.Context) error {
 	}
 
 	model := tui.New(&cfg, workingDir, version)
+
+	model.SetSessionStore(session.NewStore(workingDir))
 
 	model.SetKeySaver(func(key string) (config.Config, error) {
 		return saveProviderKey(workingDir, &cfg, key)

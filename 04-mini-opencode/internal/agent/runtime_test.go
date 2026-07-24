@@ -239,3 +239,49 @@ func TestRuntimeContextEstimateGrowsWithMessages(t *testing.T) {
 		t.Fatalf("after = %d, before = %d, want after > before", after, before)
 	}
 }
+
+func TestRuntimeSetMessagesReplacesHistory(t *testing.T) {
+	runtime := NewRuntime(&scriptedProvider{})
+
+	if err := runtime.Run(context.Background(), "first message", func(Event) {}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	original := runtime.Messages()
+	if len(original) < 2 {
+		t.Fatalf("original message count = %d, want >= 2", len(original))
+	}
+
+	replacement := []Message{
+		{Role: RoleUser, Content: "restored message"},
+		{Role: RoleAssistant, Content: "restored reply"},
+	}
+	runtime.SetMessages(replacement)
+
+	got := runtime.Messages()
+	if len(got) != 2 {
+		t.Fatalf("after SetMessages count = %d, want 2", len(got))
+	}
+	if got[0].Content != "restored message" {
+		t.Errorf("first message = %q", got[0].Content)
+	}
+	if got[1].Content != "restored reply" {
+		t.Errorf("second message = %q", got[1].Content)
+	}
+}
+
+func TestRuntimeSetMessagesNilClearsHistory(t *testing.T) {
+	runtime := NewRuntime(&scriptedProvider{})
+
+	if err := runtime.Run(context.Background(), "temp message", func(Event) {}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(runtime.Messages()) == 0 {
+		t.Fatal("expected messages before clear")
+	}
+
+	runtime.SetMessages(nil)
+
+	if len(runtime.Messages()) != 0 {
+		t.Fatalf("after SetMessages(nil) count = %d, want 0", len(runtime.Messages()))
+	}
+}

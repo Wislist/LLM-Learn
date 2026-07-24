@@ -38,6 +38,12 @@ var (
 	cmdStyle = lipgloss.NewStyle().Foreground(colorCyan)
 )
 
+// Session styles.
+var (
+	sessionStyle = lipgloss.NewStyle().Foreground(colorDim)
+	sessionBox   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorAccent).Padding(0, 1)
+)
+
 // Git status styles.
 var (
 	gitBranchStyle    = lipgloss.NewStyle().Foreground(colorCyan).Bold(true)

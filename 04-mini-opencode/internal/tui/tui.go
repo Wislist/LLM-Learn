@@ -11,6 +11,7 @@ import (
 
 	"github.com/wislist/mini-opencode/internal/agent"
 	"github.com/wislist/mini-opencode/internal/config"
+	"github.com/wislist/mini-opencode/internal/session"
 )
 
 type appState int
@@ -22,6 +23,7 @@ const (
 	stateKeyPrompt
 	stateQuitting
 	stateCompacting
+	stateSessionList
 )
 
 // Messages bridging the synchronous runtime goroutine into Bubble Tea.
@@ -59,6 +61,11 @@ type Model struct {
 	height int
 
 	gitStatus GitStatus
+
+	sessions       *session.Store
+	currentSession *session.Session
+	sessionList    []session.Meta
+	sessionCursor  int
 
 	pendingPerm    *permissionRequestMsg
 	keySaver       KeySaver
@@ -109,6 +116,7 @@ func (m *Model) SetProgram(p *tea.Program)           { m.program = p }
 func (m *Model) SetKeySaver(ks KeySaver)             { m.keySaver = ks }
 func (m *Model) SetRuntimeFactory(rf RuntimeFactory) { m.runtimeFactory = rf }
 func (m *Model) SetCompactor(c Compactor)            { m.compactor = c }
+func (m *Model) SetSessionStore(s *session.Store)    { m.sessions = s }
 func (m *Model) MakeConfirmer() agent.PermissionConfirmer {
 	return func(ctx context.Context, call agent.ToolCall, result agent.ToolResult) bool {
 		resp := make(chan bool, 1)
@@ -126,6 +134,9 @@ func (m *Model) Init() tea.Cmd {
 	m.addBlock(dimStyle.Render("welcome to mini-opencode") + "\n" +
 		dimStyle.Render("type /help for commands, or just start typing."))
 	m.gitStatus = collectGitStatus(m.workingDir)
+	if m.sessions != nil && m.currentSession == nil {
+		m.currentSession = m.sessions.Create("new session")
+	}
 	return textinput.Blink
 }
 
@@ -156,6 +167,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.addBlock(errorStyle.Render("✗ " + msg.err.Error()))
 		}
+		m.saveCurrentSession()
 		m.gitStatus = collectGitStatus(m.workingDir)
 		m.refreshViewport()
 		m.input.Focus()
@@ -170,6 +182,38 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.addBlock(dimStyle.Render(msg.summary))
 		}
 		m.gitStatus = collectGitStatus(m.workingDir)
+		m.refreshViewport()
+		m.input.Focus()
+		cmds = append(cmds, textinput.Blink)
+
+	case sessionsLoadedMsg:
+		if msg.err != nil {
+			m.state = stateIdle
+			m.addBlock(errorStyle.Render("✗ sessions: " + msg.err.Error()))
+			m.refreshViewport()
+			m.input.Focus()
+			cmds = append(cmds, textinput.Blink)
+			break
+		}
+		m.sessionList = msg.metas
+		m.sessionCursor = 0
+		m.state = stateSessionList
+		m.refreshViewport()
+
+	case sessionSwitchedMsg:
+		m.state = stateIdle
+		if msg.err != nil {
+			m.addBlock(errorStyle.Render("✗ switch session: " + msg.err.Error()))
+		} else if msg.sess != nil {
+			m.currentSession = msg.sess
+			if m.runtime != nil {
+				m.runtime.SetMessages(msg.sess.Messages)
+			}
+			m.blocks = nil
+			m.addBlock(dimStyle.Render("session: " + msg.sess.Title))
+			m.renderHistoryIntoBlocks(msg.sess.Messages)
+			m.gitStatus = collectGitStatus(m.workingDir)
+		}
 		m.refreshViewport()
 		m.input.Focus()
 		cmds = append(cmds, textinput.Blink)

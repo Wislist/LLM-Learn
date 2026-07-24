@@ -33,18 +33,53 @@ func (m *Model) handleIdleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state = stateQuitting
 		return m, tea.Quit
 	case tea.KeyEnter:
+		if m.commandMenuOpen() && len(m.commandFiltered) > 0 {
+			selected := m.commandMenuSelect()
+			m.input.Reset()
+			m.commandFiltered = nil
+			m.commandCursor = 0
+			if selected != "" {
+				return m.handleInput(selected)
+			}
+		}
 		input := strings.TrimSpace(m.input.Value())
 		if input == "" {
 			return m, nil
 		}
 		m.input.Reset()
+		m.commandFiltered = nil
+		m.commandCursor = 0
 		return m.handleInput(input)
 	case tea.KeyUp:
+		if m.commandMenuOpen() {
+			m.commandMenuMove(-1)
+			return m, nil
+		}
 		m.viewport.LineUp(1)
 		return m, nil
 	case tea.KeyDown:
+		if m.commandMenuOpen() {
+			m.commandMenuMove(1)
+			return m, nil
+		}
 		m.viewport.LineDown(1)
 		return m, nil
+	case tea.KeyTab:
+		if m.commandMenuOpen() && len(m.commandFiltered) > 0 {
+			selected := m.commandMenuSelect()
+			if selected != "" {
+				m.input.SetValue(selected)
+			}
+			m.updateCommandMenu()
+			return m, nil
+		}
+	case tea.KeyEsc:
+		if m.commandMenuOpen() {
+			m.input.Reset()
+			m.commandFiltered = nil
+			m.commandCursor = 0
+			return m, nil
+		}
 	case tea.KeyPgUp:
 		m.viewport.HalfViewUp()
 		return m, nil
@@ -54,6 +89,7 @@ func (m *Model) handleIdleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+	m.updateCommandMenu()
 	return m, cmd
 }
 

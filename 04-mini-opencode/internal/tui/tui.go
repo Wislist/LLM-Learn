@@ -67,6 +67,9 @@ type Model struct {
 	sessionList    []session.Meta
 	sessionCursor  int
 
+	commandFiltered []CommandItem
+	commandCursor   int
+
 	pendingPerm    *permissionRequestMsg
 	keySaver       KeySaver
 	runtimeFactory RuntimeFactory

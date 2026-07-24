@@ -26,6 +26,9 @@ func (m *Model) View() string {
 	} else if m.state == stateSessionList {
 		sections = append(sections, m.renderSessionList())
 	} else {
+		if m.commandMenuOpen() && len(m.commandFiltered) > 0 {
+			sections = append(sections, m.renderCommandMenu())
+		}
 		sections = append(sections, m.renderInputBar())
 	}
 	sections = append(sections, m.renderHelpBar())
@@ -165,6 +168,24 @@ func (m *Model) renderHelp() string {
 		"  " + cmdStyle.Render("/compact") + " summarize and replace the conversation context\n" +
 		"  " + cmdStyle.Render("/key") + "     set DeepSeek API key\n" +
 		"  " + cmdStyle.Render("/quit") + "    exit"
+}
+
+// renderCommandMenu renders the slash-command autocomplete overlay.
+func (m *Model) renderCommandMenu() string {
+	var lines []string
+	lines = append(lines, keyLabel.Render("commands:")+"  "+dimStyle.Render("↑↓ select · tab to complete · enter to run · esc to dismiss"))
+	for i, c := range m.commandFiltered {
+		marker := "  "
+		name := cmdStyle.Render(c.Name)
+		desc := dimStyle.Render(c.Desc)
+		if i == m.commandCursor {
+			marker = "▶ "
+			name = toolName.Render(c.Name)
+		}
+		pad := max(1, 14-len(c.Name))
+		lines = append(lines, marker+name+strings.Repeat(" ", pad)+desc)
+	}
+	return commandBox.Render(strings.Join(lines, "\n"))
 }
 
 func extractToolDetail(call agent.ToolCall) string {

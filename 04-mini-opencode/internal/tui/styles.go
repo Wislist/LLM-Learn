@@ -44,6 +44,11 @@ var (
 	sessionBox   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorAccent).Padding(0, 1)
 )
 
+// Command menu styles.
+var (
+	commandBox = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorCyan).Padding(0, 1)
+)
+
 // Git status styles.
 var (
 	gitBranchStyle    = lipgloss.NewStyle().Foreground(colorCyan).Bold(true)

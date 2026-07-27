@@ -89,6 +89,46 @@ func TestDefaultPermissionPolicyAllowsWorkspaceRootPath(t *testing.T) {
 	}
 }
 
+func TestPathWithinWorkspaceAllowsNonExistentSubPath(t *testing.T) {
+	dir := t.TempDir()
+	// A path that does not exist yet (e.g. .mini-opencode/skills) must still
+	// be considered inside the workspace so read-only tools like ls are not
+	// wrongly denied.
+	nonexistent := filepath.Join(dir, ".mini-opencode", "skills")
+	if !pathWithinWorkspace(dir, nonexistent) {
+		t.Errorf("pathWithinWorkspace denied non-existent sub-path: %s", nonexistent)
+	}
+	// Relative form should also pass.
+	if !pathWithinWorkspace(dir, filepath.Join(".mini-opencode", "skills")) {
+		t.Error("pathWithinWorkspace denied relative non-existent sub-path")
+	}
+}
+
+func TestResolveSymlinksNonExistentPath(t *testing.T) {
+	dir := t.TempDir()
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Canonicalize the workspace root the same way resolveSymlinks does
+	// (macOS symlinks /var -> /private/var).
+	wantBase, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		wantBase = abs
+	}
+	// Resolving a non-existent path should not panic or return empty; the
+	// result must start with the resolved workspace root, proving the
+	// existing ancestor was canonicalized and the trailing components were
+	// re-appended.
+	got := resolveSymlinks(filepath.Join(abs, "sub", "dir"))
+	if got == "" {
+		t.Fatal("resolveSymlinks returned empty for non-existent path")
+	}
+	if !strings.HasPrefix(got, wantBase+string(filepath.Separator)) {
+		t.Errorf("resolveSymlinks result %q does not start with resolved workspace %q", got, wantBase)
+	}
+}
+
 func TestToolRegistryReturnsPermissionMetadata(t *testing.T) {
 	registry := NewToolRegistry()
 	registry.SetPermissionPolicy(NewDefaultPermissionPolicy(t.TempDir()))

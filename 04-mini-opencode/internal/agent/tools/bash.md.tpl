@@ -1,10 +1,9 @@
 Execute shell commands; long-running commands automatically move to background and return a shell ID.
 
-<cross_platform>
-Uses mvdan/sh interpreter when available for Bash-compatible behavior across platforms.
-Use forward slashes for paths: "ls C:/foo/bar" not "ls C:\foo\bar".
-Common shell builtins and core utils may vary by platform.
-</cross_platform>
+<environment>
+Runs on macOS via `bash -lc` using the system shell. The BSD coreutils and
+standard POSIX toolset are available. Use forward slashes for paths.
+</environment>
 
 <execution_steps>
 1. Directory Verification: If creating directories/files, use LS tool to verify parent exists
@@ -67,4 +66,3 @@ Commit messages are for future readers scanning history. Before committing:
 Good: pytest /foo/bar/tests
 Bad: cd /foo/bar && pytest tests
 </examples>
-

@@ -4,6 +4,8 @@
 
 本项目不依赖仓库里已有的 `02-llmg`、`03-mini-opencode` 或其它历史实现。
 
+> 目标平台为 macOS，暂不考虑 Linux/Windows 适配。Shell 通过系统 `bash -lc` 执行。
+
 ## 目标
 
 实现一个接近 `crush` 一半能力的本地 agent 终端：

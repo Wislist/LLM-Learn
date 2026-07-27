@@ -12,6 +12,11 @@ import (
 type Config struct {
 	Provider   ProviderConfig             `json:"provider"`
 	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
+	Workspace  WorkspaceConfig            `json:"workspace"`
+	// User and Assistant are the display names shown in the TUI message
+	// labels. Defaults are applied in Load when empty.
+	User      string `json:"user,omitempty"`
+	Assistant string `json:"assistant,omitempty"`
 }
 
 type ProviderConfig struct {
@@ -23,6 +28,15 @@ type ProviderConfig struct {
 	// ContextWindow is the model's max context size in tokens. When zero,
 	// EffectiveContextWindow falls back to a model-based default.
 	ContextWindow int `json:"context_window,omitempty"`
+}
+
+// WorkspaceConfig controls the agent's filesystem access boundary. By default
+// the agent may only touch the working directory it was launched from.
+// AllowedRoots lists additional absolute or working-dir-relative paths the
+// agent is permitted to read and write, useful when launching from a
+// subdirectory while needing access to the whole project.
+type WorkspaceConfig struct {
+	AllowedRoots []string `json:"allowed_roots"`
 }
 
 type MCPServerConfig struct {
@@ -39,6 +53,8 @@ func Default() Config {
 	return Config{
 		Provider:   ProviderConfig{Name: "echo"},
 		MCPServers: map[string]MCPServerConfig{},
+		User:       "you",
+		Assistant:  "assistant",
 	}
 }
 
@@ -69,7 +85,38 @@ func Load(path string) (Config, error) {
 	if cfg.MCPServers == nil {
 		cfg.MCPServers = map[string]MCPServerConfig{}
 	}
+	if cfg.User == "" {
+		cfg.User = "you"
+	}
+	if cfg.Assistant == "" {
+		cfg.Assistant = "assistant"
+	}
+	cfg.Workspace.AllowedRoots = normalizeAllowedRoots(cfg.Workspace.AllowedRoots)
 	return cfg, nil
+}
+
+// normalizeAllowedRoots resolves each root to an absolute, cleaned path and
+// drops empties and duplicates, producing a stable list across runs.
+func normalizeAllowedRoots(roots []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(roots))
+	for _, root := range roots {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		abs, err := filepath.Abs(root)
+		if err != nil {
+			continue
+		}
+		abs = filepath.Clean(abs)
+		if _, ok := seen[abs]; ok {
+			continue
+		}
+		seen[abs] = struct{}{}
+		out = append(out, abs)
+	}
+	return out
 }
 
 func Save(path string, cfg Config) error {

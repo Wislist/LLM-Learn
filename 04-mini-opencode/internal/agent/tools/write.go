@@ -48,7 +48,7 @@ func (t *WriteTool) Run(_ context.Context, input agent.ToolInput) (agent.ToolOut
 	if err := json.Unmarshal(input.Arguments, &args); err != nil {
 		return agent.ToolOutput{}, fmt.Errorf("write: invalid args: %w", err)
 	}
-	path, err := resolveWorkspacePath(t.options.WorkDir, args.Path)
+	path, err := resolveWorkspacePathWithOptions(t.options, args.Path)
 	if err != nil {
 		return agent.ToolOutput{}, fmt.Errorf("write: %w", err)
 	}

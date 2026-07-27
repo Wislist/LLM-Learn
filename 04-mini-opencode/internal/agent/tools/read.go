@@ -50,7 +50,7 @@ func (t *ReadTool) Run(_ context.Context, input agent.ToolInput) (agent.ToolOutp
 	if err := json.Unmarshal(input.Arguments, &args); err != nil {
 		return agent.ToolOutput{}, fmt.Errorf("read: invalid args: %w", err)
 	}
-	path, err := resolveWorkspacePath(t.options.WorkDir, args.Path)
+	path, err := resolveWorkspacePathWithOptions(t.options, args.Path)
 	if err != nil {
 		return agent.ToolOutput{}, fmt.Errorf("read: %w", err)
 	}

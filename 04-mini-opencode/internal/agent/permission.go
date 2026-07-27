@@ -27,6 +27,7 @@ type PermissionPolicy interface {
 
 type DefaultPermissionPolicy struct {
 	WorkDir        string
+	AllowedRoots   []string
 	BannedCommands []string
 }
 
@@ -42,6 +43,15 @@ func NewDefaultPermissionPolicy(workDir string) DefaultPermissionPolicy {
 			"git reset --hard",
 		},
 	}
+}
+
+// NewDefaultPermissionPolicyWithRoots builds a policy whose filesystem
+// boundary is the working directory plus any additional allowed roots.
+// Allowed roots are absolute, cleaned paths (config.Load normalizes them).
+func NewDefaultPermissionPolicyWithRoots(workDir string, allowedRoots []string) DefaultPermissionPolicy {
+	policy := NewDefaultPermissionPolicy(workDir)
+	policy.AllowedRoots = allowedRoots
+	return policy
 }
 
 func (p DefaultPermissionPolicy) Check(ctx context.Context, call ToolCall, definition ToolDefinition) PermissionDecision {
@@ -94,11 +104,26 @@ func (p DefaultPermissionPolicy) checkWorkspacePaths(args json.RawMessage) strin
 		if !ok || value == "" {
 			continue
 		}
-		if !pathWithinWorkspace(p.WorkDir, value) {
+		if !pathWithinAnyWorkspace(p.WorkDir, p.AllowedRoots, value) {
 			return fmt.Sprintf("%s escapes workspace: %s", key, value)
 		}
 	}
 	return ""
+}
+
+// pathWithinAnyWorkspace reports whether path is inside the working
+// directory or any of the additional allowed roots. Each root is
+// canonicalized the same way as the working directory.
+func pathWithinAnyWorkspace(workDir string, allowedRoots []string, path string) bool {
+	if pathWithinWorkspace(workDir, path) {
+		return true
+	}
+	for _, root := range allowedRoots {
+		if pathWithinWorkspace(root, path) {
+			return true
+		}
+	}
+	return false
 }
 
 func pathWithinWorkspace(workDir string, path string) bool {

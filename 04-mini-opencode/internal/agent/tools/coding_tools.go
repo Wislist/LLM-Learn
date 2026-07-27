@@ -4,6 +4,7 @@ import "github.com/wislist/mini-opencode/internal/agent"
 
 type CodingToolOptions struct {
 	WorkDir         string
+	AllowedRoots    []string
 	Jobs            *JobManager
 	InstructionData InstructionData
 }
@@ -14,6 +15,7 @@ func CodingTools(options CodingToolOptions) []agent.Tool {
 	}
 	fileOptions := FileOptions{
 		WorkDir:         options.WorkDir,
+		AllowedRoots:    options.AllowedRoots,
 		InstructionData: options.InstructionData,
 	}
 	return []agent.Tool{

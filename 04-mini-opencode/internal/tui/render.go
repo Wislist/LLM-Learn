@@ -78,11 +78,11 @@ func (m *Model) renderContextSegment() string {
 }
 
 func (m *Model) renderInputBar() string {
-	return m.inputBorderStyle().Render(m.promptStyleM().Render("❯") + " " + m.input.View())
+	return m.inputBorderStyle().Width(m.width).Render(m.promptStyleM().Render("❯") + " " + m.input.View())
 }
 
 func (m *Model) renderKeyPrompt() string {
-	return permBox.Render(keyLabel.Render("DeepSeek API Key:") + " " + m.keyInput.View())
+	return permBox.Width(m.width).Render(keyLabel.Render("DeepSeek API Key:") + " " + m.keyInput.View())
 }
 
 func (m *Model) renderPermissionPrompt() string {
@@ -91,9 +91,9 @@ func (m *Model) renderPermissionPrompt() string {
 	}
 	call := m.pendingPerm.call
 	content := toolName.Render(call.Name) + "\n" +
-		dimStyle.Render(extractToolDetail(call)) + "\n" +
+		dimStyle.Width(max(1, m.width-4)).Render(extractToolDetail(call)) + "\n" +
 		permAsk.Render("allow? [y/N]")
-	return permBox.Render(content)
+	return permBox.Width(m.width).Render(content)
 }
 
 func (m *Model) renderHelpBar() string {
@@ -104,22 +104,26 @@ func (m *Model) renderHelpBar() string {
 		return spinnerStyle.Render(m.spinner.View()) + " " + dimStyle.Render("compacting...  ctrl+c to interrupt")
 	}
 	left := dimStyle.Render("/help /version /tools /status /key /compact /quit")
-	left = dimStyle.Render("/help /version /tools /status /session /newsession /compact /quit")
+	left = dimStyle.Render("/help /version /tools /status /session /newsession /compact /key /name /quit")
 	right := dimStyle.Render("↑↓ scroll · tab mode")
 	space := max(0, m.width-lipgloss.Width(left)-lipgloss.Width(right))
 	return left + strings.Repeat(" ", space) + right
 }
 
 func (m *Model) renderUserMessage(text string) string {
-	return m.userLabelStyle().Render("▸ you") + "\n" + userText.Render(text)
+	contentWidth := max(1, m.width-2)
+	return m.userLabelStyle().Render("▸ "+m.cfg.User) + "\n" + userText.Width(contentWidth).Render(text)
 }
 
 func (m *Model) renderAssistantMessage(text string) string {
-	return assistantLabel.Render("◂ assistant") + "\n" + assistantText.Render(text)
+	contentWidth := max(1, m.width-2)
+	return assistantLabel.Render("◂ "+m.cfg.Assistant) + "\n" + assistantText.Width(contentWidth).Render(text)
 }
 
 func (m *Model) renderToolCall(call *agent.ToolCall) string {
-	return toolBox.Render(toolName.Render(call.Name) + "\n" + dimStyle.Render(extractToolDetail(*call)))
+	boxWidth := max(1, m.width)
+	detailWidth := max(1, m.width-4)
+	return toolBox.Width(boxWidth).Render(toolName.Render(call.Name) + "\n" + dimStyle.Width(detailWidth).Render(extractToolDetail(*call)))
 }
 
 func (m *Model) renderTools() string {
@@ -131,7 +135,8 @@ func (m *Model) renderTools() string {
 	for _, t := range m.runtime.Tools() {
 		lines = append(lines, fmt.Sprintf("  %-12s %s", t.Name, t.Description))
 	}
-	return strings.Join(lines, "\n")
+	w := max(1, m.width)
+	return lipgloss.NewStyle().Width(w).Render(strings.Join(lines, "\n"))
 }
 
 func (m *Model) renderStatus() string {
@@ -154,7 +159,8 @@ func (m *Model) renderStatus() string {
 		lines = append(lines, fmt.Sprintf("  %s  ~%s tokens  %.0f%% of %s  (%d messages)",
 			cmdStyle.Render("ctx"), formatTokens(tokens), pct, formatTokens(window), len(m.runtime.Messages())))
 	}
-	return strings.Join(lines, "\n")
+	w := max(1, m.width)
+	return lipgloss.NewStyle().Width(w).Render(strings.Join(lines, "\n"))
 }
 
 func (m *Model) renderHelp() string {
@@ -168,7 +174,16 @@ func (m *Model) renderHelp() string {
 		"  " + cmdStyle.Render("/newsession") + "  start a new conversation\n" +
 		"  " + cmdStyle.Render("/compact") + " summarize and replace the conversation context\n" +
 		"  " + cmdStyle.Render("/key") + "     set DeepSeek API key\n" +
+		"  " + cmdStyle.Render("/name") + "    set or show user/assistant display names\n" +
 		"  " + cmdStyle.Render("/quit") + "    exit"
+}
+
+// renderNames renders the current user/assistant display names for /name.
+func (m *Model) renderNames() string {
+	return toolName.Render("names:") + "\n" +
+		"  user:      " + m.userLabelStyle().Render(m.cfg.User) + "\n" +
+		"  assistant: " + assistantLabel.Render(m.cfg.Assistant) + "\n" +
+		dimStyle.Render("  /name user <name> | /name assistant <name> | /name <name>")
 }
 
 // renderCommandMenu renders the slash-command autocomplete overlay.
@@ -186,7 +201,7 @@ func (m *Model) renderCommandMenu() string {
 		pad := max(1, 14-len(c.Name))
 		lines = append(lines, marker+name+strings.Repeat(" ", pad)+desc)
 	}
-	return commandBox.Render(strings.Join(lines, "\n"))
+	return commandBox.Width(m.width).Render(strings.Join(lines, "\n"))
 }
 
 // renderModeSegment renders the current interaction mode badge in the header.
@@ -280,4 +295,23 @@ func renderContextBar(pct float64) string {
 	default:
 		return ctxHighStyle.Render(label)
 	}
+}
+
+// renderWorkspace builds the /workspace panel: the working directory and any
+// additional allowed roots the agent may access outside it.
+func (m *Model) renderWorkspace() string {
+	var lines []string
+	lines = append(lines, toolName.Render("workspace:"))
+	lines = append(lines, "  "+cmdStyle.Render("root")+"  "+m.workingDir)
+	roots := m.cfg.Workspace.AllowedRoots
+	if len(roots) == 0 {
+		lines = append(lines, "  "+dimStyle.Render("allowed roots: (none)"))
+	} else {
+		lines = append(lines, "  "+cmdStyle.Render("allowed")+":")
+		for _, root := range roots {
+			lines = append(lines, "    - "+root)
+		}
+	}
+	w := max(1, m.width)
+	return lipgloss.NewStyle().Width(w).Render(strings.Join(lines, "\n"))
 }

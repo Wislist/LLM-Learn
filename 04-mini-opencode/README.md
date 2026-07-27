@@ -58,6 +58,20 @@ docs/hooks.md         Hooks（危险行为拦截 / 循环检测）说明
 go run ./cmd/mini-opencode
 ```
 
+## Workspace 访问范围
+
+默认情况下 agent 只能读写它启动时所在的工作目录。如果从子目录启动又需要访问整个项目，可以在 `config.json` 里配置 `workspace.allowed_roots`：
+
+```json
+{
+  "workspace": {
+    "allowed_roots": ["/Users/wislist/Desktop/worksplace/LLM-Learn"]
+  }
+}
+```
+
+`allowed_roots` 中的路径（绝对路径或相对当前工作目录）会被规范化为绝对路径并去重，agent 在权限校验和文件工具中都会把这些目录视为可访问范围。用 `/workspace` 命令查看当前工作目录与已允许的根目录。
+
 ## Skills
 
 Agent 可通过 `install_skill` 工具自行安装 skill（`SKILL.md`），来源包括内置 curated 列表、本地路径、GitHub 仓库。安装后 skill 会出现在系统 prompt 的 `<available_skills>` 中；CLI 中用 `/skills` 查看已安装与可安装的 skill。

@@ -60,7 +60,7 @@ func (t *GrepTool) Run(_ context.Context, input agent.ToolInput) (agent.ToolOutp
 	root := t.options.WorkDir
 	if args.Path != "" {
 		var err error
-		root, err = resolveWorkspacePath(t.options.WorkDir, args.Path)
+		root, err = resolveWorkspacePathWithOptions(t.options, args.Path)
 		if err != nil {
 			return agent.ToolOutput{}, fmt.Errorf("grep: %w", err)
 		}

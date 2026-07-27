@@ -29,6 +29,10 @@ func (m *Model) handleInput(input string) (tea.Model, tea.Cmd) {
 		m.addBlock(m.renderTools())
 		m.refreshViewport()
 		return m, nil
+	case input == "/workspace":
+		m.addBlock(m.renderWorkspace())
+		m.refreshViewport()
+		return m, nil
 	case input == "/status":
 		m.gitStatus = collectGitStatus(m.workingDir)
 		m.addBlock(m.renderStatus())
@@ -41,6 +45,12 @@ func (m *Model) handleInput(input string) (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 	case strings.HasPrefix(input, "/key "):
 		return m.saveKey(strings.TrimSpace(strings.TrimPrefix(input, "/key ")))
+	case input == "/name":
+		m.addBlock(m.renderNames())
+		m.refreshViewport()
+		return m, nil
+	case strings.HasPrefix(input, "/name "):
+		return m.handleName(input)
 	case input == "/compact":
 		return m.startCompact()
 	case input == "/newsession":
@@ -107,6 +117,61 @@ func (m *Model) saveKey(key string) (tea.Model, tea.Cmd) {
 	return m, textinput.Blink
 }
 
+// handleName parses a "/name" command. Supported forms:
+//
+//	/name                    show current names
+//	/name user <name>        set the user display name
+//	/name assistant <name>   set the assistant display name
+//	/name <name>             set both names to <name>
+func (m *Model) handleName(input string) (tea.Model, tea.Cmd) {
+	args := strings.TrimSpace(strings.TrimPrefix(input, "/name"))
+	fields := strings.Fields(args)
+	if len(fields) == 0 {
+		m.addBlock(m.renderNames())
+		m.refreshViewport()
+		return m, nil
+	}
+
+	var user, assistant string
+	switch fields[0] {
+	case "user", "u":
+		if len(fields) < 2 {
+			m.addBlock(errorStyle.Render("usage: /name user <name>"))
+			m.refreshViewport()
+			return m, nil
+		}
+		user = strings.Join(fields[1:], " ")
+	case "assistant", "a":
+		if len(fields) < 2 {
+			m.addBlock(errorStyle.Render("usage: /name assistant <name>"))
+			m.refreshViewport()
+			return m, nil
+		}
+		assistant = strings.Join(fields[1:], " ")
+	default:
+		// "/name <value>" sets both labels at once.
+		user = strings.Join(fields, " ")
+		assistant = user
+	}
+
+	if m.nameSaver == nil {
+		m.addBlock(errorStyle.Render("name saver not configured"))
+		m.refreshViewport()
+		return m, nil
+	}
+	newCfg, err := m.nameSaver(user, assistant)
+	if err != nil {
+		m.addBlock(errorStyle.Render("✗ " + err.Error()))
+	} else {
+		*m.cfg = newCfg
+		m.addBlock(toolArrow.Render("[names updated] " +
+			m.userLabelStyle().Render(m.cfg.User) + " / " + assistantLabel.Render(m.cfg.Assistant)))
+	}
+	m.state = stateIdle
+	m.refreshViewport()
+	return m, textinput.Blink
+}
+
 func (m *Model) startCompact() (tea.Model, tea.Cmd) {
 	if m.runtime == nil {
 		m.addBlock(errorStyle.Render("no runtime available. use /key to configure."))
@@ -142,32 +207,58 @@ func (m *Model) startCompact() (tea.Model, tea.Cmd) {
 
 func (m *Model) handleRuntimeEvent(event agent.Event) {
 	switch event.Type {
-	case agent.EventAssistantResponse:
-		if event.Message != nil && event.Message.Content != "" {
-			m.addBlock(m.renderAssistantMessage(event.Message.Content))
+	case agent.EventAssistantDelta:
+		if event.Delta == "" {
+			return
 		}
+		m.streamingText += event.Delta
+		rendered := m.renderAssistantMessage(m.streamingText)
+		if m.streamingIdx < 0 {
+			m.addBlock(rendered)
+			m.streamingIdx = len(m.blocks) - 1
+		} else {
+			m.blocks[m.streamingIdx] = rendered
+		}
+		m.refreshViewport()
+		return
+	case agent.EventAssistantResponse:
+		wasStreaming := m.streamingIdx >= 0
+		if event.Message != nil && event.Message.Content != "" {
+			// If we were streaming, replace the in-progress block with the
+			// authoritative final content. Otherwise (tool-only response with
+			// no content deltas) add a fresh block.
+			if wasStreaming {
+				m.blocks[m.streamingIdx] = m.renderAssistantMessage(event.Message.Content)
+			} else {
+				m.addBlock(m.renderAssistantMessage(event.Message.Content))
+			}
+		}
+		m.streamingIdx = -1
+		m.streamingText = ""
 	case agent.EventToolCallStarted:
 		if event.ToolCall != nil {
 			m.addBlock(m.renderToolCall(event.ToolCall))
 		}
 	case agent.EventToolCallFinished:
 		if event.ToolResult != nil {
+			resultWidth := max(1, m.width-2)
 			if event.ToolResult.Error != "" {
-				m.addBlock(toolError.Render("✗ " + event.ToolResult.Error))
+				m.addBlock(toolError.Width(resultWidth).Render("✗ " + event.ToolResult.Error))
 			} else {
 				content := event.ToolResult.Content
 				if len(content) > 200 {
 					content = content[:200] + "..."
 				}
-				m.addBlock(toolArrow.Render("→ " + content))
+				m.addBlock(toolArrow.Width(resultWidth).Render("→ " + content))
 			}
 		}
 	case agent.EventToolCallFailed, agent.EventToolPermissionDenied:
+		errWidth := max(1, m.width-2)
 		if event.ToolResult != nil && event.ToolResult.Error != "" {
-			m.addBlock(toolError.Render("✗ " + event.ToolResult.Error))
+			m.addBlock(toolError.Width(errWidth).Render("✗ " + event.ToolResult.Error))
 		}
 		if event.Error != nil && event.Error.Error() != "" {
-			m.addBlock(toolError.Render("✗ " + event.Error.Error()))
+			m.addBlock(toolError.Width(errWidth).Render("✗ " + event.Error.Error()))
 		}
 	}
 	m.refreshViewport()

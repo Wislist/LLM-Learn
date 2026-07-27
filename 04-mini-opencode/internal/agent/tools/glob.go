@@ -59,7 +59,7 @@ func (t *GlobTool) Run(_ context.Context, input agent.ToolInput) (agent.ToolOutp
 	root := t.options.WorkDir
 	if args.WorkingDir != "" {
 		var err error
-		root, err = resolveWorkspacePath(t.options.WorkDir, args.WorkingDir)
+		root, err = resolveWorkspacePathWithOptions(t.options, args.WorkingDir)
 		if err != nil {
 			return agent.ToolOutput{}, fmt.Errorf("glob: %w", err)
 		}

@@ -18,7 +18,7 @@ import (
 	"github.com/wislist/mini-opencode/internal/skills"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 	scanner := bufio.NewScanner(in)
@@ -42,7 +42,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 	currentSession := sessions.Create("new session")
 
 	fmt.Fprintf(out, "mini-opencode %s\n", version)
-	fmt.Fprintln(out, "commands: /help /version /tools /skills /key /compact /session /newsession /quit")
+	fmt.Fprintln(out, "commands: /help /version /tools /workspace /skills /key /compact /session /newsession /quit")
 
 	for {
 		select {
@@ -70,6 +70,8 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 			for _, tool := range runtime.Tools() {
 				fmt.Fprintf(out, "%s\t%s\n", tool.Name, tool.Description)
 			}
+		case "/workspace":
+			printWorkspace(out, workingDir, cfg.Workspace.AllowedRoots)
 		case "/skills":
 			printSkills(out, workingDir)
 		case "/compact":
@@ -126,9 +128,37 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 				continue
 			}
 			fmt.Fprintln(out, "[deepseek key saved]")
+		case "/name":
+			fmt.Fprintf(out, "user: %s  assistant: %s\n", cfg.User, cfg.Assistant)
+			fmt.Fprintln(out, "usage: /name user <name> | /name assistant <name> | /name <name>")
 		case "/quit", "quit", "exit":
 			return nil
 		default:
+			if strings.HasPrefix(input, "/name ") {
+				fields := strings.Fields(strings.TrimPrefix(input, "/name "))
+				var user, assistant string
+				switch fields[0] {
+				case "user", "u":
+					user = strings.Join(fields[1:], " ")
+				case "assistant", "a":
+					assistant = strings.Join(fields[1:], " ")
+				default:
+					user = strings.Join(fields, " ")
+					assistant = user
+				}
+				if user != "" {
+					cfg.User = user
+				}
+				if assistant != "" {
+					cfg.Assistant = assistant
+				}
+				if err := config.Save(filepath.Join(workingDir, "config.json"), cfg); err != nil {
+					fmt.Fprintf(out, "error: %v\n", err)
+					continue
+				}
+				fmt.Fprintf(out, "[names updated] %s / %s\n", cfg.User, cfg.Assistant)
+				continue
+			}
 			if strings.HasPrefix(input, "/key ") {
 				key := strings.TrimSpace(strings.TrimPrefix(input, "/key "))
 				if err := configureDeepSeekKey(scanner, out, workingDir, &cfg, key); err != nil {
@@ -154,6 +184,20 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 func printHelp(out io.Writer) {
 	fmt.Fprintln(out, "mini-opencode is a fresh Go agent terminal project.")
 	fmt.Fprintln(out, "commands: /key <deepseek-api-key> saves a local key and switches provider to DeepSeek.")
+}
+
+// printWorkspace reports the working directory and any additional allowed
+// roots the agent may read and write outside the working directory.
+func printWorkspace(out io.Writer, workingDir string, allowedRoots []string) {
+	fmt.Fprintf(out, "workspace: %s\n", workingDir)
+	if len(allowedRoots) == 0 {
+		fmt.Fprintln(out, "allowed roots: (none)")
+		return
+	}
+	fmt.Fprintln(out, "allowed roots:")
+	for _, root := range allowedRoots {
+		fmt.Fprintf(out, "  - %s\n", root)
+	}
 }
 
 // saveSession persists the current runtime messages to the active session.
@@ -246,12 +290,12 @@ func newRuntime(workingDir string, cfg config.Config, scanner *bufio.Scanner, ou
 
 	options := []agent.RuntimeOption{
 		agent.WithSystemPrompt(systemPrompt),
-		agent.WithPermissionPolicy(agent.NewDefaultPermissionPolicy(workingDir)),
+		agent.WithPermissionPolicy(agent.NewDefaultPermissionPolicyWithRoots(workingDir, cfg.Workspace.AllowedRoots)),
 		agent.WithPermissionConfirmer(confirmTool(scanner, out)),
 		agent.WithHook(agent.NewSafetyHook(workingDir)),
 		agent.WithHook(agent.NewLoopGuardHook()),
 	}
-	for _, tool := range tools.CodingTools(tools.CodingToolOptions{WorkDir: workingDir}) {
+	for _, tool := range tools.CodingTools(tools.CodingToolOptions{WorkDir: workingDir, AllowedRoots: cfg.Workspace.AllowedRoots}) {
 		options = append(options, agent.WithTool(tool))
 	}
 
@@ -331,11 +375,23 @@ func configureDeepSeekKey(scanner *bufio.Scanner, out io.Writer, workingDir stri
 }
 
 func renderEvent(out io.Writer) func(agent.Event) {
+	streamed := false
 	return func(event agent.Event) {
 		switch event.Type {
 		case agent.EventTurnStarted:
 			fmt.Fprintf(out, "[turn %d]\n", event.Turn)
+		case agent.EventAssistantDelta:
+			if event.Delta != "" {
+				fmt.Fprint(out, event.Delta)
+				streamed = true
+			}
 		case agent.EventAssistantResponse:
+			if streamed {
+				// Content already printed token-by-token; just end the line.
+				fmt.Fprintln(out)
+				streamed = false
+				return
+			}
 			if event.Message != nil && event.Message.Content != "" {
 				fmt.Fprintln(out, event.Message.Content)
 			}

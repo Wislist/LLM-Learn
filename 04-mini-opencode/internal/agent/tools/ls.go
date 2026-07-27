@@ -51,7 +51,7 @@ func (t *LSTool) Run(_ context.Context, input agent.ToolInput) (agent.ToolOutput
 	if args.Path == "" {
 		args.Path = "."
 	}
-	path, err := resolveWorkspacePath(t.options.WorkDir, args.Path)
+	path, err := resolveWorkspacePathWithOptions(t.options, args.Path)
 	if err != nil {
 		return agent.ToolOutput{}, fmt.Errorf("ls: %w", err)
 	}

@@ -17,11 +17,13 @@ var commandList = []CommandItem{
 	{"/help", "show this help message"},
 	{"/version", "show version information"},
 	{"/tools", "list registered tools"},
+	{"/workspace", "show workspace root and allowed paths"},
 	{"/status", "show git status and context usage"},
 	{"/session", "list and switch to a saved conversation"},
 	{"/newsession", "start a new conversation"},
 	{"/compact", "summarize and replace the conversation context"},
 	{"/key", "set the API key for the current provider"},
+	{"/name", "set or show the user and assistant display names"},
 	{"/quit", "exit the application"},
 }
 

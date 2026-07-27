@@ -53,7 +53,7 @@ func (t *EditTool) Run(_ context.Context, input agent.ToolInput) (agent.ToolOutp
 	if args.OldString == "" {
 		return agent.ToolOutput{}, fmt.Errorf("edit: old_string is required")
 	}
-	path, err := resolveWorkspacePath(t.options.WorkDir, args.Path)
+	path, err := resolveWorkspacePathWithOptions(t.options, args.Path)
 	if err != nil {
 		return agent.ToolOutput{}, fmt.Errorf("edit: %w", err)
 	}

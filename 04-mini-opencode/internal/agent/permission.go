@@ -106,12 +106,18 @@ func pathWithinWorkspace(workDir string, path string) bool {
 	if err != nil {
 		return false
 	}
+	if resolved, err := filepath.EvalSymlinks(base); err == nil {
+		base = resolved
+	}
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(base, path)
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return false
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
 	}
 	rel, err := filepath.Rel(base, abs)
 	if err != nil {

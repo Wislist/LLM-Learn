@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -55,6 +56,36 @@ func TestDefaultPermissionPolicyConfirmsDangerousTool(t *testing.T) {
 
 	if decision.Action != PermissionConfirm {
 		t.Fatalf("decision = %#v", decision)
+	}
+}
+
+func TestPathWithinWorkspaceAllowsWorkspaceRootItself(t *testing.T) {
+	dir := t.TempDir()
+	// The workspace root, expressed both relatively and absolutely, must be
+	// considered inside the workspace. This is the regression for the bug
+	// where `ls <workspace-root>` was denied as an escape.
+	if !pathWithinWorkspace(dir, ".") {
+		t.Error("pathWithinWorkspace(dir, \".\") = false, want true")
+	}
+	if !pathWithinWorkspace(dir, dir) {
+		t.Errorf("pathWithinWorkspace(dir, dir) = false, want true")
+	}
+}
+
+func TestDefaultPermissionPolicyAllowsWorkspaceRootPath(t *testing.T) {
+	dir := t.TempDir()
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := NewDefaultPermissionPolicy(dir)
+	decision := policy.Check(context.Background(), ToolCall{
+		Name:      "ls",
+		Arguments: json.RawMessage(`{"path":"` + abs + `"}`),
+	}, ToolDefinition{Behavior: ToolBehavior{ReadOnly: true}})
+
+	if decision.Action != PermissionAllow {
+		t.Fatalf("ls on workspace root denied: %#v", decision)
 	}
 }
 

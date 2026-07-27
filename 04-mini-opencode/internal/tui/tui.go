@@ -26,6 +26,27 @@ const (
 	stateSessionList
 )
 
+// InteractionMode toggles between plan (read-only analysis) and code
+// (full edit access). Switched with the Tab key.
+type InteractionMode int
+
+const (
+	// ModeCode allows full tool access including file edits and commands.
+	ModeCode InteractionMode = iota
+	// ModePlan blocks all non-read-only tools; the agent can only inspect
+	// the codebase and propose plans.
+	ModePlan
+)
+
+func (mode InteractionMode) String() string {
+	switch mode {
+	case ModePlan:
+		return "PLAN"
+	default:
+		return "CODE"
+	}
+}
+
 // Messages bridging the synchronous runtime goroutine into Bubble Tea.
 type runtimeEventMsg struct{ event agent.Event }
 type runtimeDoneMsg struct{ err error }
@@ -70,6 +91,9 @@ type Model struct {
 	commandFiltered []CommandItem
 	commandCursor   int
 
+	mode     InteractionMode
+	planHook *agent.PlanModeHook
+
 	pendingPerm    *permissionRequestMsg
 	keySaver       KeySaver
 	runtimeFactory RuntimeFactory
@@ -110,6 +134,7 @@ func New(cfg *config.Config, workingDir, ver string) *Model {
 		cfg:        cfg,
 		workingDir: workingDir,
 		version:    ver,
+		mode:       ModeCode,
 	}
 }
 
@@ -120,6 +145,26 @@ func (m *Model) SetKeySaver(ks KeySaver)             { m.keySaver = ks }
 func (m *Model) SetRuntimeFactory(rf RuntimeFactory) { m.runtimeFactory = rf }
 func (m *Model) SetCompactor(c Compactor)            { m.compactor = c }
 func (m *Model) SetSessionStore(s *session.Store)    { m.sessions = s }
+
+// SetPlanHook attaches the agent-side plan mode enforcer. The TUI toggles
+// hook.Active when switching modes.
+func (m *Model) SetPlanHook(h *agent.PlanModeHook) { m.planHook = h }
+
+// PlanHook returns the agent-side plan mode enforcer, or nil if unset.
+func (m *Model) PlanHook() *agent.PlanModeHook { return m.planHook }
+
+// toggleMode switches between plan and code mode, updating the hook state.
+func (m *Model) toggleMode() {
+	if m.mode == ModeCode {
+		m.mode = ModePlan
+	} else {
+		m.mode = ModeCode
+	}
+	if m.planHook != nil {
+		m.planHook.Active = m.mode == ModePlan
+	}
+	m.refreshViewport()
+}
 func (m *Model) MakeConfirmer() agent.PermissionConfirmer {
 	return func(ctx context.Context, call agent.ToolCall, result agent.ToolResult) bool {
 		resp := make(chan bool, 1)

@@ -11,6 +11,8 @@ var (
 	colorDim    = lipgloss.Color("#6B7280")
 	colorFg     = lipgloss.Color("#E4E4E7")
 	colorYellow = lipgloss.Color("#FBBF24")
+	colorBlue   = lipgloss.Color("#3B82F6")
+	colorOrange = lipgloss.Color("#F97316")
 )
 
 var (

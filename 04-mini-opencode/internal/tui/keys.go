@@ -73,6 +73,8 @@ func (m *Model) handleIdleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.updateCommandMenu()
 			return m, nil
 		}
+		m.toggleMode()
+		return m, nil
 	case tea.KeyEsc:
 		if m.commandMenuOpen() {
 			m.input.Reset()

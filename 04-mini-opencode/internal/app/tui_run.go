@@ -30,6 +30,9 @@ func RunTUI(ctx context.Context) error {
 
 	model := tui.New(&cfg, workingDir, version)
 
+	planHook := &agent.PlanModeHook{Active: false}
+	model.SetPlanHook(planHook)
+
 	model.SetSessionStore(session.NewStore(workingDir))
 
 	model.SetKeySaver(func(key string) (config.Config, error) {
@@ -84,6 +87,7 @@ func newTUIRuntime(workingDir string, cfg config.Config, model *tui.Model) (*age
 		agent.WithSystemPrompt(systemPrompt),
 		agent.WithPermissionPolicy(agent.NewDefaultPermissionPolicy(workingDir)),
 		agent.WithPermissionConfirmer(model.MakeConfirmer()),
+		agent.WithHook(model.PlanHook()),
 	}
 	for _, tool := range tools.CodingTools(tools.CodingToolOptions{WorkDir: workingDir}) {
 		options = append(options, agent.WithTool(tool))

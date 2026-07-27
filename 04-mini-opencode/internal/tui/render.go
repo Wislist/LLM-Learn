@@ -39,6 +39,7 @@ func (m *Model) renderHeader() string {
 	left := headerStyle.Render("◆ mini-opencode")
 	left += m.renderGitSegment()
 	left += m.renderSessionSegment()
+	left += m.renderModeSegment()
 	right := m.renderContextSegment() + "  " + dimStyle.Render(fmt.Sprintf("v%s · %s", m.version, m.cfg.Provider.Name))
 	space := max(0, m.width-lipgloss.Width(left)-lipgloss.Width(right)-2)
 	return left + strings.Repeat(" ", space) + right
@@ -77,7 +78,7 @@ func (m *Model) renderContextSegment() string {
 }
 
 func (m *Model) renderInputBar() string {
-	return inputBorder.Render(promptStyle.Render("❯") + " " + m.input.View())
+	return m.inputBorderStyle().Render(m.promptStyleM().Render("❯") + " " + m.input.View())
 }
 
 func (m *Model) renderKeyPrompt() string {
@@ -104,13 +105,13 @@ func (m *Model) renderHelpBar() string {
 	}
 	left := dimStyle.Render("/help /version /tools /status /key /compact /quit")
 	left = dimStyle.Render("/help /version /tools /status /session /newsession /compact /quit")
-	right := dimStyle.Render("↑↓ scroll")
+	right := dimStyle.Render("↑↓ scroll · tab mode")
 	space := max(0, m.width-lipgloss.Width(left)-lipgloss.Width(right))
 	return left + strings.Repeat(" ", space) + right
 }
 
 func (m *Model) renderUserMessage(text string) string {
-	return userLabel.Render("▸ you") + "\n" + userText.Render(text)
+	return m.userLabelStyle().Render("▸ you") + "\n" + userText.Render(text)
 }
 
 func (m *Model) renderAssistantMessage(text string) string {
@@ -186,6 +187,43 @@ func (m *Model) renderCommandMenu() string {
 		lines = append(lines, marker+name+strings.Repeat(" ", pad)+desc)
 	}
 	return commandBox.Render(strings.Join(lines, "\n"))
+}
+
+// renderModeSegment renders the current interaction mode badge in the header.
+func (m *Model) renderModeSegment() string {
+	label := fmt.Sprintf(" [%s]", m.mode)
+	style := lipgloss.NewStyle().Bold(true)
+	if m.mode == ModePlan {
+		return style.Foreground(colorBlue).Render(label)
+	}
+	return style.Foreground(colorOrange).Render(label)
+}
+
+// inputBorderStyle returns the input border color for the current mode.
+func (m *Model) inputBorderStyle() lipgloss.Style {
+	c := colorOrange
+	if m.mode == ModePlan {
+		c = colorBlue
+	}
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(c).Padding(0, 1)
+}
+
+// promptStyleM returns the prompt glyph style for the current mode.
+func (m *Model) promptStyleM() lipgloss.Style {
+	c := colorOrange
+	if m.mode == ModePlan {
+		c = colorBlue
+	}
+	return lipgloss.NewStyle().Foreground(c).Bold(true)
+}
+
+// userLabelStyle returns the user message label style for the current mode.
+func (m *Model) userLabelStyle() lipgloss.Style {
+	c := colorOrange
+	if m.mode == ModePlan {
+		c = colorBlue
+	}
+	return lipgloss.NewStyle().Foreground(c).Bold(true)
 }
 
 func extractToolDetail(call agent.ToolCall) string {

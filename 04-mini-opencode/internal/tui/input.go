@@ -63,12 +63,19 @@ func (m *Model) handleInput(input string) (tea.Model, tea.Cmd) {
 	m.state = stateRunning
 	m.input.Blur()
 
+	sendText := input
+	if m.mode == ModePlan {
+		sendText = "You are in plan mode. Do not modify any files or execute commands. " +
+			"Analyze the request, inspect the codebase with read-only tools, and provide " +
+			"a detailed plan with suggestions only.\n\n" + input
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	m.ctx = ctx
 	m.cancel = cancel
 
 	go func() {
-		err := m.runtime.Run(ctx, input, func(event agent.Event) {
+		err := m.runtime.Run(ctx, sendText, func(event agent.Event) {
 			m.program.Send(runtimeEventMsg{event: event})
 		})
 		m.program.Send(runtimeDoneMsg{err: err})
